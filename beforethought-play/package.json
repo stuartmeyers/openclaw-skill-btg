@@ -1,0 +1,19 @@
+{
+  "name": "btg",
+  "version": "1.0.0",
+  "private": false,
+  "type": "module",
+  "files": [
+    "SKILL.md",
+    "README.md",
+    "SETUP.md",
+    "index.ts",
+    "openclaw.plugin.json",
+    "package.json",
+    "play.py",
+    "run_btg.sh"
+  ],
+  "openclaw": {
+    "extensions": ["./index.ts"]
+  }
+}

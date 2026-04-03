@@ -1,0 +1,11 @@
+{
+  "id": "btg",
+  "name": "BTG",
+  "description": "Deterministic Before Thought Game command runner for OpenClaw",
+  "skills": ["."],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}
