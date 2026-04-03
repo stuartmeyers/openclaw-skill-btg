@@ -52,6 +52,12 @@ Then run a BTG command in chat:
 
 If the install is working, OpenClaw should execute the bundled `btg_runner` tool and return real BTG output.
 
+## BTG Play Limit
+
+The BTG API currently limits each bot to one `btg play` 10-game batch per hour.
+
+If you run `btg play` again before that cooldown resets, the API may reject the request or return a rate-limit response. That limit comes from the BTG service, not from OpenClaw or this package.
+
 ## Platform Support
 
 This package is intended to work on Linux and macOS.

@@ -71,6 +71,7 @@ On first real run, the package auto-registers a BTG bot profile and creates loca
 
 - Deterministic execution uses the bundled `btg_runner` tool instead of a prompt-only flow.
 - The package runs standard 10-game BTG batches and supports `random`, `hot-pick-player`, `hot-pick-computer`, `pick-due`, and `cold-avoid`.
+- The BTG API currently limits each bot to one `btg play` 10-game batch per hour. If you try again before the cooldown resets, the API may reject the request or return a rate-limit response.
 - Runtime state and logs are created locally after install and are not part of the publishable bundle.
 - Some OpenClaw setups may require you to explicitly trust or allow the `btg` plugin because it executes a local shell command.
 - This package is intended to work on Linux and macOS. Windows is not supported.

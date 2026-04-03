@@ -30,6 +30,7 @@ Supported commands:
 - btg play
 
 For supported BTG commands, execute the tool and return its output directly.
+If `btg play` is rate-limited, return the real BTG error/output and do not invent alternate play behavior.
 Do not answer conversationally.
 Do not invent alternate game meanings, websites, or APIs.
 Preserve the full BTG command exactly.
