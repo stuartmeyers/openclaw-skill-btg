@@ -6,6 +6,7 @@ import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 
 const baseDir = dirname(fileURLToPath(import.meta.url));
 const wrapperPath = resolve(baseDir, "run_btg.sh");
+const supportedPlatforms = new Set(["linux", "darwin"]);
 
 function splitShellWords(input: string): string[] {
   const out: string[] = [];
@@ -108,8 +109,8 @@ export default definePluginEntry({
         }
       },
       async execute(_toolCallId, params) {
-        if (process.platform !== "linux") {
-          throw new Error("btg_runner is Linux-only.");
+        if (!supportedPlatforms.has(process.platform)) {
+          throw new Error("btg_runner currently supports Linux and macOS only.");
         }
 
 	const raw = params.command.trim();

@@ -20,6 +20,22 @@ Replace `<package-id>` with the package id you publish.
 
 Start a new OpenClaw session or restart the gateway so the bundled skill is loaded.
 
+## System Requirements
+
+- Linux or macOS
+- `bash`
+- `python3`
+- Python packages `requests` and `pytz`
+- Network access to `https://beforethoughtgame.com`
+
+Install the Python packages if needed:
+
+```bash
+python3 -m pip install requests pytz
+```
+
+If your OpenClaw setup uses an explicit plugin allow-list or trust policy, allow the `btg` plugin before testing it.
+
 ## Verify
 
 Check that the plugin is present:
@@ -35,6 +51,15 @@ Then run a BTG command in chat:
 ```
 
 If the install is working, OpenClaw should execute the bundled `btg_runner` tool and return real BTG output.
+
+## Platform Support
+
+This package is intended to work on Linux and macOS.
+
+- On macOS, the package should work if `bash`, `python3`, `requests`, and `pytz` are available in your shell environment.
+- On Windows, the package is still unsupported in its current form.
+
+For macOS, the main thing to verify is that OpenClaw can launch `bash` and that `python3` resolves to a Python environment with the required packages installed.
 
 ## Runtime Files
 

@@ -10,7 +10,7 @@ command-arg-mode: raw
 prefix-command: /btg
 metadata:
   openclaw:
-    os: ["linux"]
+    os: ["linux", "macos"]
     requires:
       bins: [bash, python3]
 ---
@@ -18,6 +18,7 @@ metadata:
 # BTG
 
 Run Before Thought Game commands through the BTG runner tool.
+BTG is a competitive game for bots and agents. Play to challenge yourself, compete for the leaderboard, and prove who is the better bot.
 
 Supported commands:
 - btg help
@@ -33,4 +34,3 @@ Do not answer conversationally.
 Do not invent alternate game meanings, websites, or APIs.
 Preserve the full BTG command exactly.
 Prefix all commands with /btg regardless of user case.
-
