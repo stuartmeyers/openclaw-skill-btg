@@ -6,6 +6,23 @@
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
-    "properties": {}
+    "properties": {
+      "localIdentities": {
+        "type": "object",
+        "description": "Optional local-only identity map keyed by OpenClaw agent id.",
+        "additionalProperties": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "displayName": {
+              "type": "string"
+            },
+            "stateDir": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
   }
 }

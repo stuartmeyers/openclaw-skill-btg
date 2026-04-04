@@ -1,12 +1,56 @@
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
+import { homedir } from "node:os";
 
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 
 const baseDir = dirname(fileURLToPath(import.meta.url));
 const wrapperPath = resolve(baseDir, "run_btg.sh");
 const supportedPlatforms = new Set(["linux", "darwin"]);
+
+type LocalIdentityConfig = {
+  displayName?: string;
+  stateDir?: string;
+};
+
+function sanitizeSegment(input: string): string {
+  const sanitized = input.trim().replace(/[^A-Za-z0-9._-]+/g, "-");
+  return sanitized || "default";
+}
+
+function deriveStateDir(agentId?: string): string {
+  const suffix = sanitizeSegment(agentId || "default");
+  return resolve(homedir(), ".openclaw", `btg-state-${suffix}`);
+}
+
+function resolveLocalIdentityConfig(pluginConfig: Record<string, any> | undefined, agentId?: string): LocalIdentityConfig | null {
+  if (!pluginConfig || !agentId) {
+    return null;
+  }
+
+  const identities = pluginConfig.localIdentities;
+  const identity = identities?.[agentId];
+
+  if (!identity || typeof identity !== "object") {
+    return null;
+  }
+
+  const displayName =
+    typeof identity.displayName === "string" && identity.displayName.trim()
+      ? identity.displayName.trim()
+      : undefined;
+
+  const stateDir =
+    typeof identity.stateDir === "string" && identity.stateDir.trim()
+      ? identity.stateDir.trim()
+      : deriveStateDir(agentId);
+
+  return {
+    displayName,
+    stateDir
+  };
+}
 
 function splitShellWords(input: string): string[] {
   const out: string[] = [];
@@ -87,83 +131,95 @@ export default definePluginEntry({
   name: "BTG",
   description: "Runs BTG commands through run_btg.sh",
   register(api) {
-    api.registerTool({
-      name: "btg_runner",
-      description:
-        "Run a raw BTG command through bash run_btg.sh and return stdout/stderr.",
-      parameters: {
-        type: "object",
-        additionalProperties: false,
-        required: ["command"],
-        properties: {
-          command: {
-            type: "string",
-            minLength: 1
-          },
-          commandName: {
-            type: "string"
-          },
-          skillName: {
-            type: "string"
+    api.registerTool((ctx) => {
+      const localIdentity = resolveLocalIdentityConfig(api.pluginConfig as Record<string, any> | undefined, ctx.agentId);
+
+      return {
+        name: "btg_runner",
+        description:
+          "Run a raw BTG command through bash run_btg.sh and return stdout/stderr.",
+        parameters: {
+          type: "object",
+          additionalProperties: false,
+          required: ["command"],
+          properties: {
+            command: {
+              type: "string",
+              minLength: 1
+            },
+            commandName: {
+              type: "string"
+            },
+            skillName: {
+              type: "string"
+            }
           }
-        }
-      },
-      async execute(_toolCallId, params) {
-        if (!supportedPlatforms.has(process.platform)) {
-          throw new Error("btg_runner currently supports Linux and macOS only.");
-        }
+        },
+        async execute(_toolCallId, params) {
+          if (!supportedPlatforms.has(process.platform)) {
+            throw new Error("btg_runner currently supports Linux and macOS only.");
+          }
 
-	const raw = params.command.trim();
-	if (!raw) {
-	  throw new Error("Provide a BTG command.");
-	}
+          const raw = params.command.trim();
+          if (!raw) {
+            throw new Error("Provide a BTG command.");
+          }
 
-	const normalized = raw.toLowerCase().startsWith("btg ") || raw.toLowerCase() === "btg"
-	  ? raw
-	  : `btg ${raw}`;
+          const normalized = raw.toLowerCase().startsWith("btg ") || raw.toLowerCase() === "btg"
+            ? raw
+            : `btg ${raw}`;
 
-	const argv = splitShellWords(normalized);
+          const argv = splitShellWords(normalized);
+          const childEnv: NodeJS.ProcessEnv = { ...process.env };
 
-        const result = await new Promise<{ code: number; stdout: string; stderr: string }>(
-          (resolvePromise, rejectPromise) => {
-            const child = spawn("bash", [wrapperPath, ...argv], {
-              cwd: baseDir,
-              env: process.env
-            });
+          if (localIdentity?.stateDir) {
+            childEnv.BTG_STATE_DIR = localIdentity.stateDir;
+          }
+          if (localIdentity?.displayName) {
+            childEnv.BTG_DISPLAY_NAME = localIdentity.displayName;
+          }
 
-            let stdout = "";
-            let stderr = "";
-
-            child.stdout.on("data", (chunk) => {
-              stdout += String(chunk);
-            });
-
-            child.stderr.on("data", (chunk) => {
-              stderr += String(chunk);
-            });
-
-            child.on("error", rejectPromise);
-
-            child.on("close", (code) => {
-              resolvePromise({
-                code: code ?? 1,
-                stdout,
-                stderr
+          const result = await new Promise<{ code: number; stdout: string; stderr: string }>(
+            (resolvePromise, rejectPromise) => {
+              const child = spawn("bash", [wrapperPath, ...argv], {
+                cwd: baseDir,
+                env: childEnv
               });
-            });
+
+              let stdout = "";
+              let stderr = "";
+
+              child.stdout.on("data", (chunk) => {
+                stdout += String(chunk);
+              });
+
+              child.stderr.on("data", (chunk) => {
+                stderr += String(chunk);
+              });
+
+              child.on("error", rejectPromise);
+
+              child.on("close", (code) => {
+                resolvePromise({
+                  code: code ?? 1,
+                  stdout,
+                  stderr
+                });
+              });
+            }
+          );
+
+          const text = renderOutput(result.stdout, result.stderr);
+
+          if (result.code !== 0) {
+            throw new Error(text);
           }
-        );
 
-        const text = renderOutput(result.stdout, result.stderr);
-
-        if (result.code !== 0) {
-          throw new Error(text);
+          return {
+            content: [{ type: "text", text }]
+          };
         }
-
-        return {
-          content: [{ type: "text", text }]
-        };
-      }
+      };
     });
   }
 });
