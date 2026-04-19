@@ -24,6 +24,7 @@ LAST_PLAY_FILE = os.path.join(STATE_DIR, ".last-play-at")
 BATCH_HISTORY_FILE = os.path.join(STATE_DIR, ".batch-history.json")
 STATS_CACHE_FILE = os.path.join(STATE_DIR, ".last-stats.json")
 REPORT_RUNTIME_FILE = os.path.join(STATE_DIR, ".last-reports.json")
+SERVER_LIMIT_FILE = os.path.join(STATE_DIR, ".last-server-limit.json")
 SUPPORT_UNAVAILABLE = "Support information is unavailable right now."
 PLAY_COOLDOWN_MINUTES = 60
 MAX_AUTOPILOT_PLAYS_PER_DAY = 24
@@ -442,7 +443,7 @@ def print_setup_status():
     print(f"Strategy control: {strategy_control}")
     print(f"Autopilot enabled: {'yes' if autopilot['enabled'] else 'no'}")
     print(f"Autopilot interval: {autopilot['checkIntervalMinutes']}m")
-    print(f"Autopilot daily round cap: {autopilot['maxPlaysPerDay']}")
+    print(f"Autopilot advisory daily target: {autopilot['maxPlaysPerDay']}")
     print(describe_autopilot_notification_setting(autopilot))
     print(describe_autopilot_startup_delay(autopilot))
     print(describe_report_schedule("Strategy review", reports["strategy"]))
@@ -570,7 +571,7 @@ def cmd_setup(args):
         config = load_autopilot_config()
         config["maxPlaysPerDay"] = int(args[1])
         config = save_autopilot_config(config)
-        print(f"Autopilot daily round cap set to {config['maxPlaysPerDay']} (max {MAX_AUTOPILOT_PLAYS_PER_DAY}).")
+        print(f"Autopilot advisory daily target set to {config['maxPlaysPerDay']} (max {MAX_AUTOPILOT_PLAYS_PER_DAY}).")
         return
 
     if action == "interval":
@@ -717,6 +718,74 @@ def format_retry_time(last_play_at):
     return f"Retry {remaining_text} at approximately {local_time}."
 
 
+def format_retry_after_seconds(retry_after_seconds):
+    if not isinstance(retry_after_seconds, int) or retry_after_seconds < 0:
+        return "Retry after the server rate limit resets."
+
+    if retry_after_seconds == 0:
+        return "Retry now."
+
+    total_minutes = int((retry_after_seconds + 59) // 60)
+    hours, minutes = divmod(total_minutes, 60)
+    if hours > 0 and minutes > 0:
+        remaining_text = f"in about {hours}h {minutes}m"
+    elif hours > 0:
+        remaining_text = f"in about {hours}h"
+    else:
+        remaining_text = f"in about {minutes}m"
+
+    retry_at = datetime.now(load_bot_tz()) + timedelta(seconds=retry_after_seconds)
+    local_time = retry_at.astimezone(load_bot_tz()).strftime("%Y-%m-%d %H:%M")
+    return f"Retry {remaining_text} at approximately {local_time}."
+
+
+def load_server_limit_state():
+    if not os.path.exists(SERVER_LIMIT_FILE):
+        return None
+
+    try:
+        with open(SERVER_LIMIT_FILE, encoding="utf-8") as f:
+            raw = json.load(f)
+    except Exception:
+        return None
+
+    if not isinstance(raw, dict):
+        return None
+
+    encountered_at = parse_iso_datetime(raw.get("encounteredAt"))
+    retry_at = parse_iso_datetime(raw.get("retryAt"))
+    retry_after_seconds = raw.get("retryAfterSeconds")
+    if not isinstance(retry_after_seconds, int):
+        retry_after_seconds = safe_int(retry_after_seconds, None)
+    if retry_after_seconds is not None and retry_after_seconds < 0:
+        retry_after_seconds = None
+
+    return {
+        "encounteredAt": encountered_at,
+        "retryAt": retry_at,
+        "retryAfterSeconds": retry_after_seconds,
+        "triggerSource": raw.get("triggerSource"),
+        "message": raw.get("message"),
+    }
+
+
+def save_server_limit_state(state):
+    if not isinstance(state, dict):
+        return
+
+    ensure_state_dirs()
+    payload = {
+        "encounteredAt": state.get("encounteredAt"),
+        "retryAt": state.get("retryAt"),
+        "retryAfterSeconds": state.get("retryAfterSeconds"),
+        "triggerSource": state.get("triggerSource"),
+        "message": state.get("message"),
+    }
+    with open(SERVER_LIMIT_FILE, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=True, indent=2)
+    os.chmod(SERVER_LIMIT_FILE, 0o600)
+
+
 def normalize_autopilot_config(raw):
     if not isinstance(raw, dict):
         raw = {}
@@ -785,6 +854,19 @@ def count_local_date_plays(local_date=None):
     count = 0
     for entry in load_batch_history():
         if isinstance(entry, dict) and entry.get("localDate") == target:
+            count += 1
+    return count
+
+
+def count_local_date_plays_by_trigger(trigger_source, local_date=None):
+    target = local_date or current_local_date()
+    count = 0
+    for entry in load_batch_history():
+        if (
+            isinstance(entry, dict)
+            and entry.get("localDate") == target
+            and entry.get("triggerSource") == trigger_source
+        ):
             count += 1
     return count
 
@@ -1237,7 +1319,7 @@ def build_strategy_trial_status_lines():
         completed_at = trial_state.get("completedAt") or strategy_trial_end_at(trial_state).isoformat()
         lines.append(f"Trial completed at: {completed_at}")
 
-    lines.append("Trial-only results:")
+    lines.append("TRIAL RESULTS")
     trial_stats = trial_state.get("trialStats", {})
     for strategy_mode in strategies:
         lines.append(format_trial_summary_line(strategy_mode, trial_stats.get(strategy_mode, {})))
@@ -1441,8 +1523,24 @@ def format_success_breakdown_for_result(result):
 
 
 def build_autopilot_notification_line(batch_summary, autoplay_batch_count, autopilot_config):
-    if not batch_summary or not batch_summary.get("played"):
+    if not batch_summary:
         return None
+    if not batch_summary.get("played"):
+        if batch_summary.get("reason") != "bot_rate_limit":
+            return None
+        server_limit_state = load_server_limit_state() or {}
+        retry_at = server_limit_state.get("retryAt")
+        if retry_at is not None:
+            retry_line = f"Retry at approximately {retry_at.astimezone(load_bot_tz()).strftime('%Y-%m-%d %H:%M')}."
+        else:
+            retry_line = format_retry_after_seconds(server_limit_state.get("retryAfterSeconds"))
+        server_message = server_limit_state.get("message") or "Bot batch limit reached. Maximum 10 games per 60 minutes."
+        return "\n".join([
+            "stubot.ai-BTG autoplay was blocked by the server rate limit.",
+            server_message,
+            retry_line,
+        ])
+
     if not should_send_autopilot_notification(autopilot_config, autoplay_batch_count):
         return None
 
@@ -1467,19 +1565,23 @@ def build_autopilot_notification_line(batch_summary, autoplay_batch_count, autop
 def compute_play_readiness():
     last_play_at = load_last_play_at()
     now = datetime.now(load_bot_tz())
-    plays_today = count_local_date_plays(now.date().isoformat())
+    local_date = now.date().isoformat()
+    plays_today = count_local_date_plays(local_date)
+    autoplay_rounds_today = count_local_date_plays_by_trigger("autopilot", local_date)
+    manual_rounds_today = count_local_date_plays_by_trigger("manual", local_date)
     next_allowed_at = None
-    eligible = True
     remaining_minutes = 0
     autopilot = load_autopilot_config()
     autoplay_due = True
     autoplay_next_at = None
+    locally_likely_ready = True
+    server_limit_state = load_server_limit_state()
 
     if last_play_at:
         next_allowed_at = last_play_at + timedelta(minutes=PLAY_COOLDOWN_MINUTES)
         autoplay_next_at = last_play_at + timedelta(minutes=autopilot["checkIntervalMinutes"])
         if next_allowed_at > now:
-            eligible = False
+            locally_likely_ready = False
             remaining_minutes = int(((next_allowed_at - now).total_seconds() + 59) // 60)
         autoplay_due = autoplay_next_at <= now
     else:
@@ -1491,13 +1593,16 @@ def compute_play_readiness():
         "now": now,
         "last_play_at": last_play_at,
         "next_allowed_at": next_allowed_at,
-        "eligible": eligible,
-        "remaining_minutes": remaining_minutes,
+        "locallyLikelyReady": locally_likely_ready,
+        "advisoryRemainingMinutes": remaining_minutes,
         "plays_today": plays_today,
+        "autoplayRoundsToday": autoplay_rounds_today,
+        "manualRoundsToday": manual_rounds_today,
         "strategy": load_strategy(),
         "autopilot": autopilot,
         "autoplayDue": autoplay_due,
         "autoplayNextAt": autoplay_next_at,
+        "serverLimitState": server_limit_state,
     }
 
 
@@ -1511,23 +1616,36 @@ def print_game_awareness():
     print(f"Current strategy: {readiness['strategy']}")
     print(f"Autopilot: {'enabled' if autopilot['enabled'] else 'disabled'}")
     print(f"Autopilot check interval: {autopilot['checkIntervalMinutes']}m")
-    print(f"Autopilot daily round cap: {autopilot['maxPlaysPerDay']}")
+    print(f"Autopilot advisory daily target: {autopilot['maxPlaysPerDay']}")
     print(describe_autopilot_notification_setting(autopilot))
     print(describe_autopilot_startup_delay(autopilot))
-    print(f"Rounds today: {readiness['plays_today']}")
+    print(f"Total rounds today: {readiness['plays_today']}")
+    print(f"Autoplay rounds today: {readiness['autoplayRoundsToday']}")
+    print(f"Manual rounds today: {readiness['manualRoundsToday']}")
 
     if last_play_at is None:
         print("Last play at: never recorded")
     else:
         print(f"Last play at: {last_play_at.isoformat()}")
 
-    if readiness["eligible"]:
-        print("Can play now: yes")
+    if readiness["locallyLikelyReady"]:
+        print("Local guidance: likely ready to try")
     else:
-        print(f"Can play now: no ({readiness['remaining_minutes']}m cooldown remaining)")
+        print(f"Local guidance: likely still cooling down ({readiness['advisoryRemainingMinutes']}m remaining)")
 
     if next_allowed_at is not None:
-        print(f"Next eligible at: {next_allowed_at.isoformat()}")
+        print(f"Local cooldown estimate until: {next_allowed_at.isoformat()}")
+    server_limit_state = readiness["serverLimitState"]
+    if server_limit_state and server_limit_state.get("retryAt") is not None:
+        retry_at = server_limit_state["retryAt"]
+        if retry_at > readiness["now"]:
+            print(f"Last confirmed server limit: retry at {retry_at.isoformat()}")
+        else:
+            print(f"Last confirmed server limit: last retry window passed at {retry_at.isoformat()}")
+    elif server_limit_state and server_limit_state.get("retryAfterSeconds") is not None:
+        print(f"Last confirmed server limit: {format_retry_after_seconds(server_limit_state['retryAfterSeconds'])}")
+    else:
+        print("Last confirmed server limit: none recorded")
     if readiness["autoplayDue"]:
         print("Autopilot schedule due: yes")
     else:
@@ -1557,7 +1675,7 @@ def cmd_autopilot(api_key, profile_id, args):
         if len(args) >= 2 and args[1].isdigit():
             config["maxPlaysPerDay"] = int(args[1])
         config = save_autopilot_config(config)
-        print(f"Autopilot enabled. Daily round cap: {config['maxPlaysPerDay']} (max {MAX_AUTOPILOT_PLAYS_PER_DAY}). Check interval: {config['checkIntervalMinutes']}m.")
+        print(f"Autopilot enabled. Advisory daily target: {config['maxPlaysPerDay']} (max {MAX_AUTOPILOT_PLAYS_PER_DAY}). Check interval: {config['checkIntervalMinutes']}m.")
         print(describe_autopilot_notification_setting(config))
         return
 
@@ -1582,7 +1700,7 @@ def cmd_autopilot(api_key, profile_id, args):
             sys.exit(1)
         config["maxPlaysPerDay"] = int(args[1])
         config = save_autopilot_config(config)
-        print(f"Autopilot daily round cap set to {config['maxPlaysPerDay']} (max {MAX_AUTOPILOT_PLAYS_PER_DAY}).")
+        print(f"Autopilot advisory daily target set to {config['maxPlaysPerDay']} (max {MAX_AUTOPILOT_PLAYS_PER_DAY}).")
         return
 
     if action == "notify":
@@ -1624,16 +1742,6 @@ def cmd_autopilot(api_key, profile_id, args):
         if not autopilot["enabled"]:
             print("Decision: no action. Autopilot is disabled.")
             log_event("autopilot tick: skipped (disabled)")
-            return
-
-        if readiness["plays_today"] >= autopilot["maxPlaysPerDay"]:
-            print(f"Decision: no action. Daily round cap reached ({readiness['plays_today']}/{autopilot['maxPlaysPerDay']}).")
-            log_event(f"autopilot tick: skipped (daily cap {readiness['plays_today']}/{autopilot['maxPlaysPerDay']})")
-            return
-
-        if not readiness["eligible"]:
-            print(f"Decision: no action. Cooldown active ({readiness['remaining_minutes']}m remaining).")
-            log_event(f"autopilot tick: skipped (cooldown {readiness['remaining_minutes']}m)")
             return
 
         if not readiness["autoplayDue"]:
@@ -2203,7 +2311,7 @@ def build_strategy_review_lines(api_key, profile_id):
     current_strategy = load_strategy()
     level_theme_right = extract_level_theme_right(stats)
     trial_state = load_strategy_trial_state(create_if_missing=False)
-    if trial_state is not None:
+    if trial_state is not None and trial_state.get("status") == "active":
         strategies = trial_state.get("strategies", STRATEGY_TRIAL_STRATEGIES)
         trial_stats = trial_state.get("trialStats", {})
         trial_analysis = analyze_trial_results(trial_state) or {}
@@ -2777,6 +2885,7 @@ def normalize_runes_profile_entry(raw):
 
     return {
         "name": format_profile_display_name(raw),
+        "isBot": raw.get("isBot") is True,
         "runeCount": safe_int(
             raw.get("runeCount", raw.get("runes", raw.get("totalRunes", raw.get("count", 0)))),
             0
@@ -2890,22 +2999,25 @@ def build_runes_summary_lines(summary):
     )
 
     lines = [
+        "OVERALL RUNES",
         f"Total runes: {safe_int(summary.get('totalRunes', 0), 0)}",
         f"Rare runes: {safe_int(summary.get('rareRunes', 0), 0)}",
         f"Best rune score: {safe_int(summary.get('bestRuneScore', 0), 0)}",
+        "",
+        "YOUR RUNES",
+        (
+            f"• All: {safe_int(summary.get('totalRunes', 0), 0)} runes, "
+            f"{safe_int(summary.get('rareRunes', 0), 0)} rare, "
+            f"best {safe_int(summary.get('bestRuneScore', 0), 0)}"
+        ),
     ]
 
-    if active_profiles:
-        lines.append("")
-        lines.append("Profiles with runes:")
-        for profile in active_profiles:
-            lines.append(
-                f"• {profile['name']}: {profile['runeCount']} runes, "
-                f"{profile['rareRuneCount']} rare, best {profile['bestRuneScore']}"
-            )
-    else:
-        lines.append("")
-        lines.append("No linked profiles have found any runes yet.")
+    for profile in active_profiles:
+        profile_type = "Bot" if profile.get("isBot") else "Player"
+        lines.append(
+            f"• {profile_type}: {profile['name']}: {profile['runeCount']} runes, "
+            f"{profile['rareRuneCount']} rare, best {profile['bestRuneScore']}"
+        )
 
     return lines
 
@@ -3108,7 +3220,11 @@ def play_one_game(api_key, strategy_data):
         except ValueError:
             return {"error": "rate limit"}
         if error_resp.get("error") == "bot_rate_limit":
-            return {"error": "bot_rate_limit"}
+            return {
+                "error": "bot_rate_limit",
+                "retryAfterSeconds": safe_int(error_resp.get("retryAfterSeconds"), None),
+                "serverMessage": error_resp.get("message"),
+            }
         return {"error": "rate limit"}
 
     if resp.status_code != 201:
@@ -3234,7 +3350,15 @@ def play_one_game(api_key, strategy_data):
             return {"error": "unauthorized"}
 
         if mr.status_code == 429:
-            return {"error": "bot_rate_limit"}
+            try:
+                error_resp = mr.json()
+            except ValueError:
+                return {"error": "bot_rate_limit"}
+            return {
+                "error": "bot_rate_limit",
+                "retryAfterSeconds": safe_int(error_resp.get("retryAfterSeconds"), None),
+                "serverMessage": error_resp.get("message"),
+            }
 
         if mr.status_code != 200:
             return {"error": f"move {mr.status_code}"}
@@ -3310,7 +3434,6 @@ def cmd_help_examples():
     print_help_entry("/btg strategy trial 5day", "Start the 5-day strategy trial")
     print_help_entry("/btg strategy trial status", "Show the strategy trial status")
     print_help_entry("/btg strategy trial stop", "Stop the strategy trial")
-    print_help_entry("/btg analysis", "Show the performance analysis")
     print()
     print("AUTOPILOT")
     print_help_entry("/btg autopilot", "Show autopilot status")
@@ -3390,7 +3513,6 @@ def cmd_help(args=None):
     print_help_entry("/btg strategy trial 5day", "Start the 5-day strategy trial")
     print_help_entry("/btg strategy trial status", "Show the strategy trial status")
     print_help_entry("/btg strategy trial stop", "Stop the strategy trial")
-    print_help_entry("/btg analysis", "Show the performance analysis")
     print()
     print("AUTOPILOT")
     print("Background play controls and checks.")
@@ -3669,11 +3791,25 @@ def cmd_play(api_key, profile_id, trigger_source="manual"):
 
         if "error" in r and r["error"] == "bot_rate_limit":
             support_info = fetch_support_info()
-            retry_message = format_retry_time(load_last_play_at())
+            retry_after_seconds = safe_int(r.get("retryAfterSeconds"), None)
+            retry_message = format_retry_after_seconds(retry_after_seconds)
+            encountered_at = datetime.now(load_bot_tz())
+            retry_at = None
+            if retry_after_seconds is not None:
+                retry_at = encountered_at + timedelta(seconds=retry_after_seconds)
+            save_server_limit_state({
+                "encounteredAt": encountered_at.isoformat(),
+                "retryAt": retry_at.isoformat() if retry_at else None,
+                "retryAfterSeconds": retry_after_seconds,
+                "triggerSource": trigger_source,
+                "message": r.get("serverMessage"),
+            })
             if i == 0:
-                print("Batch blocked by server limit. Maximum 10 games per 60 minutes for this bot.")
+                print("Batch blocked by server rate limit.")
             else:
-                print(f"Batch interrupted by server limit. Games completed: {games_completed}/{n}")
+                print(f"Batch interrupted by server rate limit. Games completed: {games_completed}/{n}")
+            if r.get("serverMessage"):
+                print(r["serverMessage"])
             print(retry_message)
             appendix = format_support_appendix(support_info)
             if appendix:
@@ -3854,38 +3990,20 @@ def cmd_play(api_key, profile_id, trigger_source="manual"):
         "triggerSource": trigger_source,
     }
 
-def analyze_player_stats(api_key, profile_id):
-    stats = fetch_player_stats(api_key, profile_id)
-    scoreboard = stats.get("scoreboard", {})
-    streaks = stats.get("streaks", {}).get("byStage", {})
-    houses = stats.get("houses", {})
-
-    print("Profile stats:")
-    print(f"Best score: {scoreboard.get('bestScore', 0)}")
-    print(f"Average score: {scoreboard.get('averageScore', 0)}")
-    print(f"Win rate: {scoreboard.get('winRate', 0)}%")
-    print(f"Games played: {scoreboard.get('gamesPlayed', 0)}")
-    print(f"Total wins: {scoreboard.get('totalWins', 0)}")
-    print(f"Best stage streaks: BW={streaks.get('blackWhite', 0)}, Vehicles={streaks.get('vehicles', 0)}, Suit={streaks.get('suit', 0)}, Hands={streaks.get('hands', 0)}, Dice={streaks.get('dice', 0)}, Shapes={streaks.get('shapes', 0)}, Colour={streaks.get('colour', 0)}")
-    print(f"Houses: Full={houses.get('fullHouse', 0)}, Six={houses.get('sixHouse', 0)}, Five={houses.get('fiveHouse', 0)}, Half={houses.get('halfHouse', 0)}, High={houses.get('highHouse', 0)}, Low={houses.get('lowHouse', 0)}, SixSeven={houses.get('sixSeven', 0)}")
+def build_status_performance_lines(scoreboard):
+    if not isinstance(scoreboard, dict):
+        return []
 
     best_score = scoreboard.get("bestScore", 0)
     avg_score = scoreboard.get("averageScore", 0)
+    lines = []
 
-    print("Performance analysis:")
     if best_score >= 15000:
-        print(f"- Elite performance: Best score {best_score} is in top tier")
-    elif best_score >= 5000:
-        print(f"- Strong performance: Best score {best_score} is above average")
-    else:
-        print(f"- Building performance: Best score {best_score} indicates room for growth")
-
+        lines.append(f"• Elite performance: Best score {best_score} is in top tier")
     if avg_score > 800:
-        print(f"- Consistent: Average score {avg_score} is above the community average (750-800)")
-    elif avg_score > 600:
-        print(f"- Moderate: Average score {avg_score} is above baseline (500-600)")
-    else:
-        print(f"- Struggling: Average score {avg_score} is below baseline (500-600)")
+        lines.append(f"• Consistent: Average score {avg_score} is above the community average (750-800)")
+
+    return lines
 
 def cmd_pickstats(api_key, profile_id):
     stats = fetch_player_stats(api_key, profile_id)
@@ -3974,8 +4092,14 @@ def cmd_status(api_key, profile_id):
     streaks = stats.get("streaks", {}).get("byStage", {})
     houses = stats.get("houses", {})
     level_theme_right = extract_level_theme_right(stats)
+    trial_lines = build_strategy_trial_status_lines()
+    performance_lines = build_status_performance_lines(sb)
+    runes_result = fetch_runes_summary(api_key)
 
     print_player_identity(api_key, profile_id)
+    print("BTG Status")
+    print()
+    print("PROFILE STATS")
     print(f"Best score: {sb.get('bestScore', 0)}")
     print(f"Average score: {sb.get('averageScore', 0)}")
     print(f"Win rate: {sb.get('winRate', 0)}%")
@@ -3989,7 +4113,90 @@ def cmd_status(api_key, profile_id):
         for line in status_lines:
             print(line)
     print()
-    print_game_awareness()
+    print("GAME AWARENESS")
+    print_game_awareness(include_heading=False, include_trial=False)
+
+    if trial_lines:
+        print()
+        print("STRATEGY TRIAL")
+        for line in trial_lines:
+            print(line)
+
+    if performance_lines:
+        print()
+        print("PERFORMANCE")
+        for line in performance_lines:
+            print(line)
+
+    if runes_result.get("unlinked"):
+        print()
+        print("RUNES")
+        print("This bot is not linked to an owner account yet.")
+    elif runes_result.get("ok"):
+        print()
+        for line in build_runes_summary_lines(runes_result.get("summary", {})):
+            print(line)
+    else:
+        print()
+        print("RUNES")
+        print(f"Could not load runes: {runes_result.get('error', 'unknown error')}.")
+
+def print_game_awareness(include_heading=True, include_trial=True):
+    readiness = compute_play_readiness()
+    autopilot = readiness["autopilot"]
+    last_play_at = readiness["last_play_at"]
+    next_allowed_at = readiness["next_allowed_at"]
+
+    if include_heading:
+        print("Game awareness:")
+    print(f"Current strategy: {readiness['strategy']}")
+    print(f"Autopilot: {'enabled' if autopilot['enabled'] else 'disabled'}")
+    print(f"Autopilot check interval: {autopilot['checkIntervalMinutes']}m")
+    print(f"Autopilot advisory daily target: {autopilot['maxPlaysPerDay']}")
+    print(describe_autopilot_notification_setting(autopilot))
+    print(describe_autopilot_startup_delay(autopilot))
+    print(f"Total rounds today: {readiness['plays_today']}")
+    print(f"Autoplay rounds today: {readiness['autoplayRoundsToday']}")
+    print(f"Manual rounds today: {readiness['manualRoundsToday']}")
+
+    if last_play_at is None:
+        print("Last play at: never recorded")
+    else:
+        print(f"Last play at: {last_play_at.isoformat()}")
+
+    if readiness["locallyLikelyReady"]:
+        print("Local guidance: likely ready to try")
+    else:
+        print(f"Local guidance: likely still cooling down ({readiness['advisoryRemainingMinutes']}m remaining)")
+
+    if next_allowed_at is not None:
+        print(f"Local cooldown estimate until: {next_allowed_at.isoformat()}")
+    server_limit_state = readiness["serverLimitState"]
+    if server_limit_state and server_limit_state.get("retryAt") is not None:
+        retry_at = server_limit_state["retryAt"]
+        if retry_at > readiness["now"]:
+            print(f"Last confirmed server limit: retry at {retry_at.isoformat()}")
+        else:
+            print(f"Last confirmed server limit: last retry window passed at {retry_at.isoformat()}")
+    elif server_limit_state and server_limit_state.get("retryAfterSeconds") is not None:
+        print(f"Last confirmed server limit: {format_retry_after_seconds(server_limit_state['retryAfterSeconds'])}")
+    else:
+        print("Last confirmed server limit: none recorded")
+    if readiness["autoplayDue"]:
+        print("Autopilot schedule due: yes")
+    else:
+        print("Autopilot schedule due: no")
+    if readiness["autoplayNextAt"] is not None:
+        print(f"Next scheduled autoplay at: {readiness['autoplayNextAt'].isoformat()}")
+
+    if include_trial:
+        trial_lines = build_strategy_trial_status_lines()
+    else:
+        trial_lines = []
+    if trial_lines:
+        print()
+        for line in trial_lines:
+            print(line)
 
 def cmd_stats(api_key, profile_id):
     stats = fetch_player_stats(api_key, profile_id)
@@ -4102,8 +4309,6 @@ def main():
             cmd_reports(subargs)
         elif subcmd == "support":
             cmd_support()
-        elif subcmd == "analysis":
-            analyze_player_stats(api_key, profile_id)
         elif subcmd == "personality":
             mode = "balanced" if len(subargs) == 0 else subargs[0]
             save_personality(mode)
@@ -4157,8 +4362,6 @@ def main():
         cmd_reports(args)
     elif cmd == "support":
         cmd_support()
-    elif cmd == "analysis":
-        analyze_player_stats(api_key, profile_id)
     elif cmd == "personality":
         mode = "balanced" if len(args) == 0 else args[0]
         save_personality(mode)
