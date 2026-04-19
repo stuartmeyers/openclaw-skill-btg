@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import sys, json, random, requests, os, time
+import sys, json, random, requests, os, time, hashlib, re
 from datetime import datetime, timedelta
 import pytz
 
@@ -13,13 +13,130 @@ TIMEZONE_FILE = os.path.join(STATE_DIR, ".timezone")
 DISPLAY_NAME_FILE = os.path.join(STATE_DIR, ".display-name")
 PERSONALITY_FILE = os.path.join(CONFIG_DIR, "personality.json")
 STRATEGY_FILE = os.path.join(CONFIG_DIR, "strategy.json")
+STRATEGY_CONTROL_FILE = os.path.join(CONFIG_DIR, "strategycontrol.json")
+AUTOPILOT_FILE = os.path.join(CONFIG_DIR, "autopilot.json")
+REPORTS_FILE = os.path.join(CONFIG_DIR, "reports.json")
+STRATEGY_STATS_FILE = os.path.join(STATE_DIR, ".strategy-stats.json")
+STRATEGY_TRIAL_FILE = os.path.join(STATE_DIR, ".strategy-trial.json")
 LOG_DIR = os.path.join(STATE_DIR, "logs")
 LOG_FILE = os.path.join(LOG_DIR, "btg.log")
 LAST_PLAY_FILE = os.path.join(STATE_DIR, ".last-play-at")
 BATCH_HISTORY_FILE = os.path.join(STATE_DIR, ".batch-history.json")
 STATS_CACHE_FILE = os.path.join(STATE_DIR, ".last-stats.json")
+REPORT_RUNTIME_FILE = os.path.join(STATE_DIR, ".last-reports.json")
 SUPPORT_UNAVAILABLE = "Support information is unavailable right now."
 PLAY_COOLDOWN_MINUTES = 60
+MAX_AUTOPILOT_PLAYS_PER_DAY = 24
+DEFAULT_AUTOPILOT_CONFIG = {
+    "enabled": False,
+    "checkIntervalMinutes": 61,
+    "maxPlaysPerDay": 3,
+    "notifyEveryNBatches": 0,
+    "startupDelayMinutes": None,
+    "startupAnchorAt": None,
+}
+DEFAULT_REPORTS_CONFIG = {
+    "daily": {
+        "enabled": False,
+        "time": "09:05",
+    },
+    "strategy": {
+        "enabled": False,
+        "time": "09:10",
+    },
+    "deliveryOffsetMinutes": None,
+}
+STRATEGY_TRIAL_SWITCH_TIME = "20:00"
+STRATEGY_TRIAL_STRATEGIES = [
+    "random",
+    "hot-pick-player",
+    "hot-pick-computer",
+    "pick-due",
+    "cold-avoid",
+]
+RUNE_STAGE_EMOJI = [
+    {"white": "⚪", "black": "⚫"},
+    {"car": "🚗", "motorbike": "🏍️", "truck": "🚚"},
+    {"hearts": "❤️", "diamonds": "♦️", "clubs": "♣️", "spades": "♠️"},
+    {"thumbs_up": "👍", "thumbs_down": "👎", "peace": "✌️", "fist": "✊", "open_hand": "✋"},
+    {"1": "⚀", "2": "⚁", "3": "⚂", "4": "⚃", "5": "⚄", "6": "⚅"},
+    {"square": "⬛", "triangle": "▲", "circle": "⚫", "star": "★", "diamond": "◆", "hexagon": "⬢", "plus": "✚", "cross": "✖️"},
+    {"red": "❤️", "orange": "🧡", "yellow": "💛", "green": "💚", "blue": "💙", "purple": "💜", "black": "🖤", "white": "🤍", "brown": "🤎", "pink": "🩷"},
+]
+RUNE_SEQUENCE_STAGE_KEYS = [
+    ["blackWhite", "black_white", "bw", "level1"],
+    ["vehicles", "vehicle", "level2"],
+    ["suit", "suits", "level3"],
+    ["hands", "hand", "level4"],
+    ["dice", "die", "level5"],
+    ["shapes", "shape", "level6"],
+    ["colour", "color", "colours", "colors", "level7"],
+]
+RUNE_SEQUENCE_VALUE_KEYS = [
+    "runeSequence",
+    "rune_sequence",
+    "sequence",
+    "sequenceKey",
+    "sequence_key",
+    "runeKey",
+    "rune_key",
+    "themeKey",
+    "theme_key",
+    "choiceKey",
+    "choice_key",
+    "key",
+    "path",
+    "choices",
+    "choice",
+    "symbols",
+]
+RUNE_DISPLAY_TOKEN_EMOJI = {
+    "white": "⚪",
+    "black": "⚫",
+    "car": "🚗",
+    "motorbike": "🏍️",
+    "truck": "🚚",
+    "hearts": "❤️",
+    "diamonds": "♦️",
+    "clubs": "♣️",
+    "spades": "♠️",
+    "thumbs_up": "👍",
+    "thumbs_down": "👎",
+    "peace": "✌️",
+    "fist": "✊",
+    "open_hand": "✋",
+    "1": "⚀",
+    "2": "⚁",
+    "3": "⚂",
+    "4": "⚃",
+    "5": "⚄",
+    "6": "⚅",
+    "square": "⬛",
+    "triangle": "▲",
+    "circle": "⚫",
+    "star": "★",
+    "diamond": "◆",
+    "hexagon": "⬢",
+    "plus": "✚",
+    "cross": "✖️",
+    "red": "❤️",
+    "orange": "🧡",
+    "yellow": "💛",
+    "green": "💚",
+    "blue": "💙",
+    "purple": "💜",
+    "brown": "🤎",
+    "pink": "🩷",
+}
+RUNE_KEY_STAGE_VALUE_MAP = {
+    "1": ["black", "white"],
+    "2": ["car", "motorbike", "truck"],
+    "3": ["hearts", "diamonds", "clubs", "spades"],
+    "4": ["thumbs_up", "thumbs_down", "peace", "fist", "open_hand"],
+    "5": ["1", "2", "3", "4", "5", "6"],
+    "6": ["square", "triangle", "circle", "star", "diamond", "hexagon", "plus", "cross"],
+    "7": ["red", "orange", "yellow", "green", "blue", "purple", "black", "white", "brown", "pink"],
+}
 
 def ensure_state_dirs():
     os.makedirs(STATE_DIR, exist_ok=True)
@@ -39,10 +156,9 @@ def copy_if_missing(target_path, legacy_path, chmod_mode=None):
 
 def migrate_legacy_state():
     ensure_state_dirs()
-    copy_if_missing(API_KEY_FILE, os.path.join(SCRIPT_DIR, ".api-key"), 0o600)
-    copy_if_missing(PROFILE_ID_FILE, os.path.join(SCRIPT_DIR, ".profile-id"), 0o600)
-    copy_if_missing(TIMEZONE_FILE, os.path.join(SCRIPT_DIR, ".timezone"), 0o600)
-    copy_if_missing(STRATEGY_FILE, os.path.join(SCRIPT_DIR, ".config", "strategy.json"))
+    # Do not import identity/config from the plugin directory.
+    # Fresh installs and BTG2-style workspaces must start from explicit setup
+    # in the state directory rather than hidden files bundled in a dev copy.
 
 def log_event(message):
     try:
@@ -115,6 +231,181 @@ def save_display_name(display_name):
         f.write(display_name.strip())
     os.chmod(DISPLAY_NAME_FILE, 0o600)
 
+
+def save_timezone_name(timezone_name):
+    try:
+        pytz.timezone(timezone_name)
+    except Exception:
+        print("Invalid timezone. Example: Australia/Sydney", file=sys.stderr)
+        sys.exit(1)
+
+    ensure_state_dirs()
+    with open(TIMEZONE_FILE, "w", encoding="utf-8") as f:
+        f.write(timezone_name.strip())
+    os.chmod(TIMEZONE_FILE, 0o600)
+
+
+def is_valid_local_time_string(value):
+    if not isinstance(value, str) or len(value) != 5 or value[2] != ":":
+        return False
+    hour = value[:2]
+    minute = value[3:]
+    if not (hour.isdigit() and minute.isdigit()):
+        return False
+    hour_num = int(hour)
+    minute_num = int(minute)
+    return 0 <= hour_num <= 23 and 0 <= minute_num <= 59
+
+
+def parse_iso_datetime(value):
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        dt = datetime.fromisoformat(value.strip())
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        return load_bot_tz().localize(dt)
+    return dt
+
+
+def stable_seed_source():
+    display_name = load_display_name()
+    if display_name:
+        return display_name
+    if os.path.exists(PROFILE_ID_FILE):
+        try:
+            with open(PROFILE_ID_FILE) as f:
+                value = f.read().strip()
+                if value:
+                    return value
+        except Exception:
+            pass
+    return STATE_DIR
+
+
+def stable_random_int(label, upper_bound_exclusive):
+    if upper_bound_exclusive <= 0:
+        return 0
+    source = f"{stable_seed_source()}::{label}"
+    digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
+    return int(digest[:12], 16) % upper_bound_exclusive
+
+
+def normalize_report_entry(raw, default_time):
+    if not isinstance(raw, dict):
+        raw = {}
+
+    enabled = raw.get("enabled")
+    time_value = raw.get("time")
+
+    if not isinstance(enabled, bool):
+        enabled = False
+    if not is_valid_local_time_string(time_value):
+        time_value = default_time
+
+    return {
+        "enabled": enabled,
+        "time": time_value,
+    }
+
+
+def normalize_reports_config(raw):
+    if not isinstance(raw, dict):
+        raw = {}
+
+    offset = raw.get("deliveryOffsetMinutes")
+    if not isinstance(offset, int) or offset < 0 or offset > 14:
+        offset = stable_random_int("report-offset", 15)
+
+    return {
+        "daily": normalize_report_entry(raw.get("daily"), DEFAULT_REPORTS_CONFIG["daily"]["time"]),
+        "strategy": normalize_report_entry(raw.get("strategy"), DEFAULT_REPORTS_CONFIG["strategy"]["time"]),
+        "deliveryOffsetMinutes": offset,
+    }
+
+
+def load_reports_config():
+    migrate_legacy_state()
+    if not os.path.exists(REPORTS_FILE):
+        return normalize_reports_config(DEFAULT_REPORTS_CONFIG)
+
+    try:
+        with open(REPORTS_FILE) as f:
+            raw = json.load(f)
+    except Exception:
+        return normalize_reports_config(DEFAULT_REPORTS_CONFIG)
+
+    return normalize_reports_config(raw)
+
+
+def save_reports_config(config):
+    ensure_state_dirs()
+    normalized = normalize_reports_config(config)
+    with open(REPORTS_FILE, "w", encoding="utf-8") as f:
+        json.dump(normalized, f, ensure_ascii=True, indent=2)
+    os.chmod(REPORTS_FILE, 0o600)
+    return normalized
+
+
+def load_report_runtime_state():
+    migrate_legacy_state()
+    if not os.path.exists(REPORT_RUNTIME_FILE):
+        return {}
+
+    try:
+        with open(REPORT_RUNTIME_FILE) as f:
+            raw = json.load(f)
+    except Exception:
+        return {}
+
+    return raw if isinstance(raw, dict) else {}
+
+
+def save_report_runtime_state(state):
+    ensure_state_dirs()
+    with open(REPORT_RUNTIME_FILE, "w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=True, indent=2)
+    os.chmod(REPORT_RUNTIME_FILE, 0o600)
+
+
+def describe_report_schedule(report_name, report_config):
+    if report_config.get("enabled"):
+        return f"{report_name}: enabled at {report_config.get('time')} local time"
+    return f"{report_name}: disabled"
+
+
+def describe_autopilot_notification_setting(autopilot_config):
+    every_n = autopilot_config.get("notifyEveryNBatches", 0)
+    if every_n <= 0:
+        return "Autopilot notifications: off"
+    if every_n == 1:
+        return "Autopilot notifications: every autoplay round"
+    return f"Autopilot notifications: every {every_n} autoplay rounds"
+
+
+def describe_report_offset(reports_config):
+    offset = reports_config.get("deliveryOffsetMinutes", 0)
+    if offset <= 0:
+        return "Report delivery offset: +0m"
+    return f"Report delivery offset: +{offset}m"
+
+
+def describe_per_round_report_setting(autopilot_config):
+    every_n = safe_int(autopilot_config.get("notifyEveryNBatches", 0), 0)
+    if every_n <= 0:
+        return "Per round report: disabled"
+    if every_n == 1:
+        return "Per round report: enabled"
+    return f"Per round report: enabled every {every_n} rounds"
+
+
+def describe_autopilot_startup_delay(autopilot_config):
+    startup_delay = autopilot_config.get("startupDelayMinutes")
+    if not isinstance(startup_delay, int) or startup_delay < 0:
+        startup_delay = 0
+    return f"Autopilot startup offset: {startup_delay}m"
+
 def require_display_name():
     display_name = load_display_name()
     if display_name:
@@ -123,6 +414,204 @@ def require_display_name():
     print("BTG setup required: no BTG display name is configured.", file=sys.stderr)
     print(f"Create {DISPLAY_NAME_FILE} with the bot name you want to register, or set BTG_DISPLAY_NAME.", file=sys.stderr)
     print("Example names: MyBot or MyBot_BTG", file=sys.stderr)
+    sys.exit(1)
+
+
+def has_display_name_configured():
+    return bool(load_display_name())
+
+
+def print_setup_status():
+    display_name = load_display_name()
+    timezone_name = get_bot_timezone()
+    strategy = load_strategy()
+    strategy_control = load_strategycontrol()
+    autopilot = load_autopilot_config()
+    reports = load_reports_config()
+    has_identity = os.path.exists(API_KEY_FILE) and os.path.exists(PROFILE_ID_FILE)
+    email_status = {"ok": True, "email": None}
+    if has_identity:
+        email_status = fetch_bot_email(load_api_key())
+
+    print("BTG Setup")
+    print()
+    print(f"Display name: {display_name if display_name else 'not set'}")
+    print(describe_email_setup_line(email_status))
+    print(f"Timezone: {timezone_name}")
+    print(f"Strategy: {strategy}")
+    print(f"Strategy control: {strategy_control}")
+    print(f"Autopilot enabled: {'yes' if autopilot['enabled'] else 'no'}")
+    print(f"Autopilot interval: {autopilot['checkIntervalMinutes']}m")
+    print(f"Autopilot daily round cap: {autopilot['maxPlaysPerDay']}")
+    print(describe_autopilot_notification_setting(autopilot))
+    print(describe_autopilot_startup_delay(autopilot))
+    print(describe_report_schedule("Strategy review", reports["strategy"]))
+    print(describe_per_round_report_setting(autopilot))
+    print(describe_report_offset(reports))
+    print(f"Registered with BTG: {'yes' if has_identity else 'no'}")
+    print()
+
+    if not display_name:
+        print("Missing required setup: display name")
+        print("Next step: btg setup name <YourBotName>")
+    elif not has_identity:
+        print("Setup is ready for first real BTG registration.")
+        print("Next step: run btg status or btg play to register and start.")
+    else:
+        print("Setup looks complete.")
+
+def load_api_key_for_setup_email():
+    if os.path.exists(API_KEY_FILE):
+        return load_api_key()
+    if not has_display_name_configured():
+        print("BTG setup required before email can be changed.", file=sys.stderr)
+        print("Run: btg setup name <YourBotName>", file=sys.stderr)
+        sys.exit(1)
+    return load_api_key()
+
+def cmd_setup(args):
+    action = "show" if not args else args[0]
+
+    if action in ["show", "status"]:
+        print_setup_status()
+        return
+
+    if action == "name":
+        if len(args) < 2:
+            print("Usage: btg setup name <display-name>", file=sys.stderr)
+            sys.exit(1)
+        display_name = " ".join(args[1:]).strip()
+        if not display_name:
+            print("Display name cannot be empty.", file=sys.stderr)
+            sys.exit(1)
+        save_display_name(display_name)
+        print(f"BTG display name set to: {display_name}")
+        return
+
+    if action == "email":
+        if len(args) == 1:
+            result = fetch_bot_email(load_api_key_for_setup_email())
+            if result.get("ok"):
+                print(format_email_lookup_message(result))
+            else:
+                print(format_email_lookup_message(result), file=sys.stderr)
+                sys.exit(1)
+            return
+
+        email_value = " ".join(args[1:]).strip()
+        if not email_value:
+            print("Usage: btg setup email [<address>|clear]", file=sys.stderr)
+            sys.exit(1)
+
+        if email_value.lower() == "clear":
+            result = update_bot_email(load_api_key_for_setup_email(), load_profile_id(), None)
+            if result.get("ok"):
+                print(format_email_update_message(result, cleared=True))
+            else:
+                print(format_email_update_message(result, cleared=True), file=sys.stderr)
+                sys.exit(1)
+            return
+
+        result = update_bot_email(load_api_key_for_setup_email(), load_profile_id(), email_value)
+        if result.get("ok"):
+            print(format_email_update_message(result, cleared=False, attempted_email=email_value))
+        else:
+            print(format_email_update_message(result, cleared=False, attempted_email=email_value), file=sys.stderr)
+            if not result.get("ok"):
+                sys.exit(1)
+        return
+
+    if action == "timezone":
+        if len(args) < 2:
+            print("Usage: btg setup timezone <Area/City>", file=sys.stderr)
+            sys.exit(1)
+        save_timezone_name(args[1].strip())
+        print(f"BTG timezone set to: {args[1].strip()}")
+        return
+
+    if action == "strategy":
+        if len(args) < 2:
+            print("Usage: btg setup strategy <random|hot-pick-player|hot-pick-computer|pick-due|cold-avoid>", file=sys.stderr)
+            sys.exit(1)
+        save_strategy(args[1].strip())
+        print(f"Default BTG strategy set to: {args[1].strip()}")
+        return
+
+    if action == "strategycontrol":
+        if len(args) < 2:
+            print("Usage: btg setup strategycontrol <suggest|auto-daily|auto-weekly>", file=sys.stderr)
+            sys.exit(1)
+        mode = args[1].strip().lower()
+        save_strategycontrol(mode)
+        print(f"Strategy control set to: {mode}")
+        return
+
+    if action == "autopilot":
+        if len(args) < 2:
+            print("Usage: btg setup autopilot <on|off>", file=sys.stderr)
+            sys.exit(1)
+        config = load_autopilot_config()
+        setting = args[1].strip().lower()
+        if setting == "on":
+            config["enabled"] = True
+        elif setting == "off":
+            config["enabled"] = False
+        else:
+            print("Usage: btg setup autopilot <on|off>", file=sys.stderr)
+            sys.exit(1)
+        config = save_autopilot_config(config)
+        print(f"Autopilot {'enabled' if config['enabled'] else 'disabled'}.")
+        return
+
+    if action == "cap":
+        if len(args) < 2 or not args[1].isdigit():
+            print(f"Usage: btg setup cap <rounds-per-day 1-{MAX_AUTOPILOT_PLAYS_PER_DAY}>", file=sys.stderr)
+            sys.exit(1)
+        config = load_autopilot_config()
+        config["maxPlaysPerDay"] = int(args[1])
+        config = save_autopilot_config(config)
+        print(f"Autopilot daily round cap set to {config['maxPlaysPerDay']} (max {MAX_AUTOPILOT_PLAYS_PER_DAY}).")
+        return
+
+    if action == "interval":
+        if len(args) < 2 or not args[1].isdigit():
+            print("Usage: btg setup interval <minutes>", file=sys.stderr)
+            sys.exit(1)
+        config = load_autopilot_config()
+        config["checkIntervalMinutes"] = int(args[1])
+        config = save_autopilot_config(config)
+        print(f"Autopilot interval set to {config['checkIntervalMinutes']}m.")
+        return
+
+    if action == "autopilotnotify":
+        if len(args) < 2:
+            print("Usage: btg setup autopilotnotify <off|every [n]>", file=sys.stderr)
+            sys.exit(1)
+        config = load_autopilot_config()
+        setting = args[1].strip().lower()
+        if setting == "off":
+            config["notifyEveryNBatches"] = 0
+            config = save_autopilot_config(config)
+            print("Autopilot notifications disabled.")
+            return
+        if setting == "every":
+            notify_n = 1
+            if len(args) >= 3:
+                if not args[2].isdigit() or int(args[2]) <= 0:
+                    print("Usage: btg setup autopilotnotify <off|every [n]>", file=sys.stderr)
+                    sys.exit(1)
+                notify_n = int(args[2])
+            config["notifyEveryNBatches"] = notify_n
+            config = save_autopilot_config(config)
+            if notify_n == 1:
+                print("Autopilot notifications set to every autoplay round.")
+            else:
+                print(f"Autopilot notifications set to every {notify_n} autoplay rounds.")
+            return
+        print("Usage: btg setup autopilotnotify <off|every [n]>", file=sys.stderr)
+        sys.exit(1)
+
+    print("Usage: btg setup [show|name <display-name>|email [<address>|clear]|timezone <Area/City>|strategy <mode>|strategycontrol <suggest|auto-daily|auto-weekly>|autopilot <on|off>|cap <rounds-per-day>|interval <minutes>|autopilotnotify <off|every [n]>]", file=sys.stderr)
     sys.exit(1)
 
 def register_bot():
@@ -227,6 +716,949 @@ def format_retry_time(last_play_at):
     local_time = next_allowed_at.astimezone(load_bot_tz()).strftime("%Y-%m-%d %H:%M")
     return f"Retry {remaining_text} at approximately {local_time}."
 
+
+def normalize_autopilot_config(raw):
+    if not isinstance(raw, dict):
+        raw = {}
+
+    enabled = raw.get("enabled")
+    check_interval = raw.get("checkIntervalMinutes")
+    max_plays = raw.get("maxPlaysPerDay")
+    notify_every = raw.get("notifyEveryNBatches")
+    startup_delay = raw.get("startupDelayMinutes")
+    startup_anchor = parse_iso_datetime(raw.get("startupAnchorAt"))
+
+    if not isinstance(enabled, bool):
+        enabled = DEFAULT_AUTOPILOT_CONFIG["enabled"]
+    if not isinstance(check_interval, int) or check_interval <= 0:
+        check_interval = DEFAULT_AUTOPILOT_CONFIG["checkIntervalMinutes"]
+    if not isinstance(max_plays, int) or max_plays <= 0:
+        max_plays = DEFAULT_AUTOPILOT_CONFIG["maxPlaysPerDay"]
+    if max_plays > MAX_AUTOPILOT_PLAYS_PER_DAY:
+        max_plays = MAX_AUTOPILOT_PLAYS_PER_DAY
+    if not isinstance(notify_every, int) or notify_every < 0:
+        notify_every = DEFAULT_AUTOPILOT_CONFIG["notifyEveryNBatches"]
+    if not isinstance(startup_delay, int) or startup_delay < 0 or startup_delay >= check_interval:
+        startup_delay = stable_random_int("autopilot-startup-delay", check_interval)
+    if startup_anchor is None:
+        startup_anchor = datetime.now(load_bot_tz())
+
+    return {
+        "enabled": enabled,
+        "checkIntervalMinutes": check_interval,
+        "maxPlaysPerDay": max_plays,
+        "notifyEveryNBatches": notify_every,
+        "startupDelayMinutes": startup_delay,
+        "startupAnchorAt": startup_anchor.isoformat(),
+    }
+
+
+def load_autopilot_config():
+    migrate_legacy_state()
+    if not os.path.exists(AUTOPILOT_FILE):
+        return dict(DEFAULT_AUTOPILOT_CONFIG)
+
+    try:
+        with open(AUTOPILOT_FILE) as f:
+            raw = json.load(f)
+    except Exception:
+        return dict(DEFAULT_AUTOPILOT_CONFIG)
+
+    return normalize_autopilot_config(raw)
+
+
+def save_autopilot_config(config):
+    ensure_state_dirs()
+    normalized = normalize_autopilot_config(config)
+    with open(AUTOPILOT_FILE, "w", encoding="utf-8") as f:
+        json.dump(normalized, f, ensure_ascii=True, indent=2)
+    os.chmod(AUTOPILOT_FILE, 0o600)
+    return normalized
+
+
+def current_local_date():
+    return datetime.now(load_bot_tz()).date().isoformat()
+
+
+def count_local_date_plays(local_date=None):
+    target = local_date or current_local_date()
+    count = 0
+    for entry in load_batch_history():
+        if isinstance(entry, dict) and entry.get("localDate") == target:
+            count += 1
+    return count
+
+
+def count_autopilot_batches():
+    count = 0
+    for entry in load_batch_history():
+        if isinstance(entry, dict) and entry.get("triggerSource") == "autopilot":
+            count += 1
+    return count
+
+
+def default_strategy_stats():
+    return {
+        "currentRun": {
+            "mode": load_strategy(),
+            "games": 0,
+            "rounds": 0,
+            "highestScore": 0,
+            "scoreTotal": 0,
+            "topScores": [],
+        },
+        "strategies": {},
+    }
+
+
+def build_trial_strategy_sequence():
+    return list(STRATEGY_TRIAL_STRATEGIES)
+
+
+def normalize_top_scores(values):
+    if not isinstance(values, list):
+        return []
+    scores = [safe_int(value, 0) for value in values if safe_int(value, 0) > 0]
+    scores.sort(reverse=True)
+    return scores[:5]
+
+
+def normalize_strategy_summary(raw):
+    if not isinstance(raw, dict):
+        raw = {}
+    return {
+        "games": max(0, safe_int(raw.get("games", 0))),
+        "rounds": max(0, safe_int(raw.get("rounds", 0))),
+        "highestScore": max(0, safe_int(raw.get("highestScore", 0))),
+        "scoreTotal": max(0, safe_int(raw.get("scoreTotal", 0))),
+        "topScores": normalize_top_scores(raw.get("topScores", [])),
+    }
+
+
+def normalize_strategy_stats(raw):
+    normalized = default_strategy_stats()
+    if not isinstance(raw, dict):
+        return normalized
+
+    current_run = raw.get("currentRun")
+    if isinstance(current_run, dict):
+        normalized["currentRun"] = normalize_strategy_summary(current_run)
+        mode = current_run.get("mode")
+        normalized["currentRun"]["mode"] = mode if isinstance(mode, str) and mode else load_strategy()
+
+    strategies = raw.get("strategies")
+    if isinstance(strategies, dict):
+        normalized_map = {}
+        for mode, summary in strategies.items():
+            if isinstance(mode, str) and mode:
+                normalized_map[mode] = normalize_strategy_summary(summary)
+        normalized["strategies"] = normalized_map
+
+    return normalized
+
+
+def load_strategy_stats():
+    migrate_legacy_state()
+    if not os.path.exists(STRATEGY_STATS_FILE):
+        return default_strategy_stats()
+
+    try:
+        with open(STRATEGY_STATS_FILE) as f:
+            raw = json.load(f)
+    except Exception:
+        return default_strategy_stats()
+
+    return normalize_strategy_stats(raw)
+
+
+def save_strategy_stats(stats):
+    ensure_state_dirs()
+    normalized = normalize_strategy_stats(stats)
+    with open(STRATEGY_STATS_FILE, "w", encoding="utf-8") as f:
+        json.dump(normalized, f, ensure_ascii=True, indent=2)
+    os.chmod(STRATEGY_STATS_FILE, 0o600)
+    return normalized
+
+
+def extend_top_scores(existing, new_scores):
+    combined = normalize_top_scores(existing) + [safe_int(score, 0) for score in new_scores if safe_int(score, 0) > 0]
+    combined.sort(reverse=True)
+    return combined[:5]
+
+
+def apply_scores_to_strategy_summary(summary, game_scores):
+    normalized = normalize_strategy_summary(summary)
+    scores = [safe_int(score, 0) for score in game_scores if safe_int(score, 0) > 0]
+    normalized["games"] += len(game_scores)
+    normalized["rounds"] += 1
+    normalized["scoreTotal"] += sum(safe_int(score, 0) for score in game_scores)
+    if scores:
+        normalized["highestScore"] = max(normalized["highestScore"], max(scores))
+        normalized["topScores"] = extend_top_scores(normalized["topScores"], scores)
+    return normalized
+
+
+def record_strategy_round(strategy_mode, game_scores):
+    stats = load_strategy_stats()
+    strategies = stats.setdefault("strategies", {})
+    summary = strategies.get(strategy_mode, {})
+    strategies[strategy_mode] = apply_scores_to_strategy_summary(summary, game_scores)
+
+    current_run = stats.get("currentRun", {})
+    current_mode = current_run.get("mode")
+    if current_mode != strategy_mode:
+        current_run = {
+            "mode": strategy_mode,
+            "games": 0,
+            "rounds": 0,
+            "highestScore": 0,
+            "scoreTotal": 0,
+            "topScores": [],
+        }
+    current_run = apply_scores_to_strategy_summary(current_run, game_scores)
+    current_run["mode"] = strategy_mode
+    stats["currentRun"] = current_run
+    save_strategy_stats(stats)
+
+
+def summarize_strategy_summary(summary):
+    normalized = normalize_strategy_summary(summary)
+    games = normalized["games"]
+    rounds = normalized["rounds"]
+    highest = normalized["highestScore"]
+    average_score = int(round(normalized["scoreTotal"] / games)) if games > 0 else 0
+    top_scores = normalized["topScores"]
+    top_five_average = int(round(sum(top_scores) / len(top_scores))) if top_scores else 0
+    return {
+        "games": games,
+        "rounds": rounds,
+        "highestScore": highest,
+        "averageScore": average_score,
+        "topFiveAverage": top_five_average,
+    }
+
+
+def default_strategy_trial_state(start_strategy=None, started_at=None):
+    started_at = started_at or datetime.now(load_bot_tz())
+    return {
+        "status": "active",
+        "switchTime": STRATEGY_TRIAL_SWITCH_TIME,
+        "startedAt": started_at.isoformat(),
+        "completedAt": None,
+        "dayIndex": 0,
+        "strategies": build_trial_strategy_sequence(),
+        "trialStats": {},
+    }
+
+
+def normalize_strategy_trial_state(raw):
+    started_at = None
+    if isinstance(raw, dict):
+        started_at = parse_iso_datetime(raw.get("startedAt"))
+    normalized = default_strategy_trial_state(started_at=started_at or datetime.now(load_bot_tz()))
+    if not isinstance(raw, dict):
+        return normalized
+
+    status = raw.get("status")
+    if status not in ["active", "completed", "stopped"]:
+        status = "active"
+
+    switch_time = raw.get("switchTime")
+    if not is_valid_local_time_string(switch_time):
+        switch_time = STRATEGY_TRIAL_SWITCH_TIME
+
+    strategies = raw.get("strategies")
+    if isinstance(strategies, list):
+        normalized_strategies = []
+        for mode in strategies:
+            if isinstance(mode, str) and mode in STRATEGY_TRIAL_STRATEGIES and mode not in normalized_strategies:
+                normalized_strategies.append(mode)
+        if len(normalized_strategies) != len(STRATEGY_TRIAL_STRATEGIES):
+            normalized_strategies = build_trial_strategy_sequence()
+    else:
+        normalized_strategies = build_trial_strategy_sequence()
+
+    day_index = safe_int(raw.get("dayIndex", 0), 0)
+    if day_index < 0:
+        day_index = 0
+    if day_index >= len(normalized_strategies):
+        day_index = len(normalized_strategies) - 1
+
+    completed_at = raw.get("completedAt")
+    if not isinstance(completed_at, str) or not completed_at.strip():
+        completed_at = None
+
+    trial_stats = {}
+    raw_trial_stats = raw.get("trialStats")
+    if isinstance(raw_trial_stats, dict):
+        for mode, summary in raw_trial_stats.items():
+            if isinstance(mode, str) and mode:
+                trial_stats[mode] = normalize_strategy_summary(summary)
+
+    normalized.update({
+        "status": status,
+        "switchTime": switch_time,
+        "startedAt": (started_at or parse_iso_datetime(normalized["startedAt"]) or datetime.now(load_bot_tz())).isoformat(),
+        "completedAt": completed_at,
+        "dayIndex": day_index,
+        "strategies": normalized_strategies,
+        "trialStats": trial_stats,
+    })
+    return normalized
+
+
+def load_strategy_trial_state(create_if_missing=True):
+    migrate_legacy_state()
+    if os.path.exists(STRATEGY_TRIAL_FILE):
+        try:
+            with open(STRATEGY_TRIAL_FILE) as f:
+                return normalize_strategy_trial_state(json.load(f))
+        except Exception:
+            pass
+
+    if not create_if_missing:
+        return None
+
+    trial_state = default_strategy_trial_state()
+    save_strategy_trial_state(trial_state)
+    return trial_state
+
+
+def save_strategy_trial_state(trial_state):
+    ensure_state_dirs()
+    normalized = normalize_strategy_trial_state(trial_state)
+    with open(STRATEGY_TRIAL_FILE, "w", encoding="utf-8") as f:
+        json.dump(normalized, f, ensure_ascii=True, indent=2)
+    os.chmod(STRATEGY_TRIAL_FILE, 0o600)
+    return normalized
+
+
+def strategy_trial_started_at(trial_state):
+    started_at = parse_iso_datetime(trial_state.get("startedAt")) if isinstance(trial_state, dict) else None
+    if started_at is None:
+        started_at = datetime.now(load_bot_tz())
+    return started_at.astimezone(load_bot_tz())
+
+
+def strategy_trial_first_switch_at(trial_state):
+    started_at = strategy_trial_started_at(trial_state)
+    switch_time = trial_state.get("switchTime", STRATEGY_TRIAL_SWITCH_TIME)
+    switch_hour = int(switch_time[:2])
+    switch_minute = int(switch_time[3:])
+    first_switch_at = started_at.replace(hour=switch_hour, minute=switch_minute, second=0, microsecond=0)
+    if first_switch_at <= started_at:
+        first_switch_at += timedelta(days=1)
+    return first_switch_at
+
+
+def strategy_trial_end_at(trial_state):
+    return strategy_trial_first_switch_at(trial_state) + timedelta(days=len(trial_state.get("strategies", STRATEGY_TRIAL_STRATEGIES)) - 1)
+
+
+def strategy_trial_next_switch_at(trial_state):
+    day_index = safe_int(trial_state.get("dayIndex", 0), 0)
+    strategies = trial_state.get("strategies", STRATEGY_TRIAL_STRATEGIES)
+    if day_index >= len(strategies) - 1:
+        return None
+    return strategy_trial_first_switch_at(trial_state) + timedelta(days=day_index)
+
+
+def is_trial_window_active(trial_state, at_time=None):
+    if not isinstance(trial_state, dict) or trial_state.get("status") != "active":
+        return False
+    sample_time = at_time or datetime.now(load_bot_tz())
+    if sample_time.tzinfo is None:
+        sample_time = load_bot_tz().localize(sample_time)
+    local_time = sample_time.astimezone(load_bot_tz())
+    started_at = strategy_trial_started_at(trial_state)
+    return started_at <= local_time < strategy_trial_end_at(trial_state)
+
+
+def record_strategy_trial_round(strategy_mode, game_scores, completed_at=None):
+    trial_state = load_strategy_trial_state(create_if_missing=False)
+    if trial_state is None:
+        return
+
+    recorded_at = completed_at or datetime.now(load_bot_tz())
+    if recorded_at.tzinfo is None:
+        recorded_at = load_bot_tz().localize(recorded_at)
+    if not is_trial_window_active(trial_state, recorded_at):
+        return
+
+    trial_stats = trial_state.setdefault("trialStats", {})
+    trial_stats[strategy_mode] = apply_scores_to_strategy_summary(trial_stats.get(strategy_mode, {}), game_scores)
+    save_strategy_trial_state(trial_state)
+
+
+def maybe_advance_strategy_trial(now=None):
+    trial_state = load_strategy_trial_state(create_if_missing=False)
+    if trial_state is None:
+        return None, None
+    if trial_state.get("status") != "active":
+        return trial_state, None
+    if trial_state.get("status") == "completed":
+        return trial_state, None
+
+    local_now = (now or datetime.now(load_bot_tz())).astimezone(load_bot_tz())
+    strategies = trial_state.get("strategies", STRATEGY_TRIAL_STRATEGIES)
+    final_day_index = len(strategies) - 1
+    trial_end_at = strategy_trial_end_at(trial_state)
+    current_day_index = safe_int(trial_state.get("dayIndex", 0), 0)
+    current_day_strategy = strategies[current_day_index]
+
+    if load_strategy() != current_day_strategy:
+        save_strategy(current_day_strategy)
+
+    if local_now >= trial_end_at:
+        final_strategy = strategies[final_day_index]
+        if load_strategy() != final_strategy:
+            save_strategy(final_strategy)
+        trial_state["dayIndex"] = final_day_index
+        trial_state["status"] = "completed"
+        trial_state["completedAt"] = trial_end_at.isoformat()
+        save_strategy_trial_state(trial_state)
+        log_event(f"strategy trial complete: final_strategy={final_strategy}")
+        return trial_state, {
+            "action": "completed",
+            "strategy": final_strategy,
+            "completedAt": trial_end_at.isoformat(),
+        }
+
+    first_switch_at = strategy_trial_first_switch_at(trial_state)
+    target_day_index = 0
+    if local_now >= first_switch_at:
+        target_day_index = int((local_now - first_switch_at).total_seconds() // 86400) + 1
+        if target_day_index > final_day_index:
+            target_day_index = final_day_index
+
+    if target_day_index <= current_day_index:
+        return trial_state, None
+
+    next_strategy = strategies[target_day_index]
+    if load_strategy() != next_strategy:
+        save_strategy(next_strategy)
+    trial_state["dayIndex"] = target_day_index
+    save_strategy_trial_state(trial_state)
+    log_event(f"strategy trial switch: day={target_day_index + 1} strategy={next_strategy}")
+    return trial_state, {
+        "action": "switched",
+        "strategy": next_strategy,
+        "day": target_day_index + 1,
+        "switchedAt": local_now.isoformat(),
+    }
+
+
+def analyze_trial_results(trial_state):
+    if not isinstance(trial_state, dict):
+        return None
+
+    strategies = trial_state.get("strategies", STRATEGY_TRIAL_STRATEGIES)
+    trial_stats = trial_state.get("trialStats", {})
+    best_average_mode = None
+    best_average_metric = None
+    best_peak_mode = None
+    best_peak_metric = None
+    best_top_five_mode = None
+    best_top_five_metric = None
+
+    for strategy_mode in strategies:
+        metric = summarize_strategy_summary(trial_stats.get(strategy_mode, {}))
+        if metric["games"] <= 0:
+            continue
+        if best_average_metric is None or metric["averageScore"] > best_average_metric["averageScore"]:
+            best_average_mode = strategy_mode
+            best_average_metric = metric
+        if best_peak_metric is None or metric["highestScore"] > best_peak_metric["highestScore"]:
+            best_peak_mode = strategy_mode
+            best_peak_metric = metric
+        if best_top_five_metric is None or metric["topFiveAverage"] > best_top_five_metric["topFiveAverage"]:
+            best_top_five_mode = strategy_mode
+            best_top_five_metric = metric
+
+    recommended_mode = None
+    recommendation_reason = None
+    if best_average_mode is not None:
+        recommended_mode = best_average_mode
+        recommendation_reason = f"it delivered the best trial average ({best_average_metric['averageScore']})"
+        if best_top_five_mode == best_average_mode and best_peak_mode == best_average_mode:
+            recommendation_reason = (
+                f"it led the trial on average ({best_average_metric['averageScore']}), "
+                f"top 5 average ({best_top_five_metric['topFiveAverage']}), and peak ({best_peak_metric['highestScore']})"
+            )
+        elif best_top_five_mode == best_average_mode:
+            recommendation_reason = (
+                f"it led the trial on average ({best_average_metric['averageScore']}) "
+                f"and top 5 average ({best_top_five_metric['topFiveAverage']})"
+            )
+
+    return {
+        "bestAverageMode": best_average_mode,
+        "bestAverageMetric": best_average_metric,
+        "bestPeakMode": best_peak_mode,
+        "bestPeakMetric": best_peak_metric,
+        "bestTopFiveMode": best_top_five_mode,
+        "bestTopFiveMetric": best_top_five_metric,
+        "recommendedMode": recommended_mode,
+        "recommendationReason": recommendation_reason,
+    }
+
+
+def format_trial_summary_line(strategy_mode, summary):
+    metrics = summarize_strategy_summary(summary)
+    summary_line = (
+        f"- {strategy_mode}: highest {metrics['highestScore']}, "
+        f"average {metrics['averageScore']}, top 5 average {metrics['topFiveAverage']}"
+    )
+    if metrics["games"] <= 0:
+        return f"{summary_line} (waiting to start)"
+    return (
+        f"{summary_line} across {metrics['games']} games and {metrics['rounds']} rounds"
+    )
+
+
+def build_strategy_trial_status_lines():
+    trial_state = load_strategy_trial_state(create_if_missing=False)
+    if trial_state is None:
+        return []
+
+    strategies = trial_state.get("strategies", STRATEGY_TRIAL_STRATEGIES)
+    lines = [
+        f"Strategy trial: {trial_state['status']} (Day {safe_int(trial_state.get('dayIndex', 0), 0) + 1}/{len(strategies)})",
+        f"Trial switch time: {trial_state.get('switchTime', STRATEGY_TRIAL_SWITCH_TIME)} local",
+    ]
+
+    if trial_state["status"] == "active":
+        next_switch_at = strategy_trial_next_switch_at(trial_state)
+        if next_switch_at is not None:
+            lines.append(f"Next trial switch at: {next_switch_at.isoformat()}")
+        else:
+            lines.append(f"Trial ends at: {strategy_trial_end_at(trial_state).isoformat()}")
+    else:
+        completed_at = trial_state.get("completedAt") or strategy_trial_end_at(trial_state).isoformat()
+        lines.append(f"Trial completed at: {completed_at}")
+
+    lines.append("Trial-only results:")
+    trial_stats = trial_state.get("trialStats", {})
+    for strategy_mode in strategies:
+        lines.append(format_trial_summary_line(strategy_mode, trial_stats.get(strategy_mode, {})))
+    return lines
+
+
+def format_trial_order_line(strategies):
+    return ", ".join(strategies)
+
+
+def start_fixed_strategy_trial():
+    trial_state = default_strategy_trial_state(started_at=datetime.now(load_bot_tz()))
+    trial_state["status"] = "active"
+    trial_state["dayIndex"] = 0
+    trial_state["completedAt"] = None
+    trial_state["switchTime"] = STRATEGY_TRIAL_SWITCH_TIME
+    trial_state["strategies"] = build_trial_strategy_sequence()
+    trial_state["trialStats"] = {}
+    save_strategy_trial_state(trial_state)
+    save_strategy("random")
+    save_strategycontrol("suggest")
+    log_event("strategy trial started: fixed 5-day trial from scratch")
+    return trial_state
+
+
+def stop_strategy_trial():
+    trial_state = load_strategy_trial_state(create_if_missing=False)
+    if trial_state is None or trial_state.get("status") != "active":
+        return None
+    trial_state["status"] = "stopped"
+    save_strategy_trial_state(trial_state)
+    log_event("strategy trial stopped")
+    return trial_state
+
+
+def print_strategy_trial_status():
+    trial_state = load_strategy_trial_state(create_if_missing=False)
+    print("BTG Strategy Trial")
+    print()
+
+    if trial_state is None:
+        print("Status: not started")
+        print("Last completed trial: no")
+        print("Run: btg strategy trial 5day")
+        return
+
+    strategies = trial_state.get("strategies", STRATEGY_TRIAL_STRATEGIES)
+    day_number = safe_int(trial_state.get("dayIndex", 0), 0) + 1
+    trial_strategy = strategies[min(max(day_number - 1, 0), len(strategies) - 1)]
+    print(f"Status: {trial_state['status']}")
+    print(f"Last completed trial: {'yes' if trial_state.get('status') == 'completed' else 'no'}")
+    print(f"Current day: Day {day_number} of {len(strategies)}")
+    print(f"Current trial strategy: {trial_strategy}")
+
+    if trial_state["status"] == "active":
+        next_switch_at = strategy_trial_next_switch_at(trial_state)
+        if next_switch_at is not None:
+            print(f"Next switch: {next_switch_at.isoformat()}")
+        else:
+            print(f"Next switch: trial ends at {strategy_trial_end_at(trial_state).isoformat()}")
+    elif trial_state["status"] == "completed":
+        completed_at = trial_state.get("completedAt") or strategy_trial_end_at(trial_state).isoformat()
+        print(f"Trial completed at: {completed_at}")
+    elif trial_state["status"] == "stopped":
+        print("Trial completed at: not completed")
+
+    print(f"Switch time: {trial_state.get('switchTime', STRATEGY_TRIAL_SWITCH_TIME)} local")
+    print(f"Trial order: {format_trial_order_line(strategies)}")
+    print(f"Strategy control: {load_strategycontrol()}")
+    if trial_state["status"] == "completed":
+        print("Trial-only stats: preserved from the last completed trial")
+    elif trial_state["status"] == "active":
+        print("Trial-only stats: current trial only")
+    else:
+        print("Trial-only stats: preserved from the stopped trial")
+
+
+def cmd_strategy(args):
+    if len(args) == 0:
+        current = load_strategy()
+        print(f"Current strategy: {current}")
+        return
+
+    if args[0] == "trial":
+        if len(args) < 2:
+            print("Usage: btg strategy trial [5day|status|stop]", file=sys.stderr)
+            sys.exit(1)
+        action = args[1].strip().lower()
+        if action == "5day":
+            trial_state = start_fixed_strategy_trial()
+            print("Started fixed 5-day strategy trial from scratch.")
+            print(f"Day 1 strategy: {trial_state['strategies'][0]}")
+            print(f"Switch time: {trial_state.get('switchTime', STRATEGY_TRIAL_SWITCH_TIME)} local")
+            print(f"Trial order: {format_trial_order_line(trial_state['strategies'])}")
+            print("Trial-only stats have been reset.")
+            print("Strategy control stays on suggest.")
+            return
+        if action == "status":
+            print_strategy_trial_status()
+            return
+        if action == "stop":
+            stopped = stop_strategy_trial()
+            if stopped is None:
+                print("No active strategy trial to stop.")
+                return
+            print("Stopped the fixed 5-day strategy trial.")
+            print("The current strategy is left unchanged.")
+            return
+        print("Usage: btg strategy trial [5day|status|stop]", file=sys.stderr)
+        sys.exit(1)
+
+    mode = args[0]
+    if mode not in ["random", "hot-pick-player", "hot-pick-computer", "pick-due", "cold-avoid"]:
+        print("Invalid strategy. Options: random, hot-pick-player, hot-pick-computer, pick-due, cold-avoid", file=sys.stderr)
+        sys.exit(1)
+    save_strategy(mode)
+    print(f"Strategy set: {mode}")
+    return
+
+
+def should_send_autopilot_notification(autopilot_config, autoplay_batch_count):
+    every_n = autopilot_config.get("notifyEveryNBatches", 0)
+    if every_n <= 0:
+        return False
+    if autoplay_batch_count <= 0:
+        return False
+    return autoplay_batch_count % every_n == 0
+
+
+def format_int_with_commas(value):
+    return f"{safe_int(value, 0):,}"
+
+
+def stage_name_from_index(index):
+    names = ["Black/White", "Vehicles", "Suit", "Hands", "Dice", "Shapes", "Colour"]
+    if isinstance(index, int) and 0 <= index < len(names):
+        return names[index]
+    return f"Stage {safe_int(index, 0) + 1}"
+
+
+def find_stage_bonus_score(bonuses, stage_key, stage_label):
+    if not isinstance(bonuses, dict):
+        return 0
+
+    normalized_candidates = [
+        str(stage_key).lower(),
+        str(stage_label).lower(),
+        str(stage_label).lower().replace("/", ""),
+        str(stage_label).lower().replace("/", "").replace(" ", ""),
+        str(stage_label).lower().replace(" ", ""),
+    ]
+
+    best = 0
+    for raw_key, raw_value in bonuses.items():
+        key = str(raw_key).lower()
+        value = safe_int(raw_value, 0)
+        if value <= 0:
+            continue
+        for candidate in normalized_candidates:
+            if candidate and candidate in key:
+                best = max(best, value)
+                break
+    return best
+
+
+def format_success_breakdown_for_result(result):
+    if not isinstance(result, dict):
+        return None
+
+    score = safe_int(result.get("finalScore", 0), 0)
+    if score < 5000:
+        return None
+
+    stage_keys = ["blackWhite", "vehicles", "suit", "hands", "dice", "shapes", "colour"]
+    streaks = result.get("streaks")
+    bonuses = result.get("bonuses")
+    if not isinstance(streaks, list):
+        return None
+
+    highlights = []
+    for index, streak_value in enumerate(streaks):
+        streak = safe_int(streak_value, 0)
+        if streak < 3:
+            continue
+        stage_key = stage_keys[index] if index < len(stage_keys) else f"stage{index + 1}"
+        stage_label = stage_name_from_index(index)
+        bonus_score = find_stage_bonus_score(bonuses, stage_key, stage_label)
+        highlights.append((streak, bonus_score, stage_label))
+
+    if not highlights:
+        return None
+
+    highlights.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    parts = []
+    for streak, stage_score, label in highlights:
+        if stage_score > 0:
+            parts.append(f"{label} - {streak} - {format_int_with_commas(stage_score)}")
+        else:
+            parts.append(f"{label} - {streak}")
+    return f"Where it had success: {' : '.join(parts)}."
+
+
+def build_autopilot_notification_line(batch_summary, autoplay_batch_count, autopilot_config):
+    if not batch_summary or not batch_summary.get("played"):
+        return None
+    if not should_send_autopilot_notification(autopilot_config, autoplay_batch_count):
+        return None
+
+    top_score = batch_summary.get("topScore", 0)
+    strategy = batch_summary.get("strategy", load_strategy())
+    message = f"stubot.ai-BTG. Top score: {top_score}. Strategy: {strategy}."
+    success_breakdown = batch_summary.get("topScoreSuccessBreakdown")
+    if top_score >= 5000 and isinstance(success_breakdown, str) and success_breakdown:
+        message = f"{message} {success_breakdown}"
+
+    lines = [message]
+    discovered_runes = format_discovered_rune_lines(batch_summary.get("newRuneDiscoveries"))
+    if discovered_runes:
+        if len(discovered_runes) == 1:
+            lines.append("Congratulations - you discovered a rune!")
+        else:
+            lines.append("Congratulations - you discovered runes!")
+        lines.extend(discovered_runes)
+    return "\n".join(lines)
+
+
+def compute_play_readiness():
+    last_play_at = load_last_play_at()
+    now = datetime.now(load_bot_tz())
+    plays_today = count_local_date_plays(now.date().isoformat())
+    next_allowed_at = None
+    eligible = True
+    remaining_minutes = 0
+    autopilot = load_autopilot_config()
+    autoplay_due = True
+    autoplay_next_at = None
+
+    if last_play_at:
+        next_allowed_at = last_play_at + timedelta(minutes=PLAY_COOLDOWN_MINUTES)
+        autoplay_next_at = last_play_at + timedelta(minutes=autopilot["checkIntervalMinutes"])
+        if next_allowed_at > now:
+            eligible = False
+            remaining_minutes = int(((next_allowed_at - now).total_seconds() + 59) // 60)
+        autoplay_due = autoplay_next_at <= now
+    else:
+        startup_anchor = parse_iso_datetime(autopilot.get("startupAnchorAt")) or now
+        autoplay_next_at = startup_anchor + timedelta(minutes=autopilot["startupDelayMinutes"])
+        autoplay_due = autoplay_next_at <= now
+
+    return {
+        "now": now,
+        "last_play_at": last_play_at,
+        "next_allowed_at": next_allowed_at,
+        "eligible": eligible,
+        "remaining_minutes": remaining_minutes,
+        "plays_today": plays_today,
+        "strategy": load_strategy(),
+        "autopilot": autopilot,
+        "autoplayDue": autoplay_due,
+        "autoplayNextAt": autoplay_next_at,
+    }
+
+
+def print_game_awareness():
+    readiness = compute_play_readiness()
+    autopilot = readiness["autopilot"]
+    last_play_at = readiness["last_play_at"]
+    next_allowed_at = readiness["next_allowed_at"]
+
+    print("Game awareness:")
+    print(f"Current strategy: {readiness['strategy']}")
+    print(f"Autopilot: {'enabled' if autopilot['enabled'] else 'disabled'}")
+    print(f"Autopilot check interval: {autopilot['checkIntervalMinutes']}m")
+    print(f"Autopilot daily round cap: {autopilot['maxPlaysPerDay']}")
+    print(describe_autopilot_notification_setting(autopilot))
+    print(describe_autopilot_startup_delay(autopilot))
+    print(f"Rounds today: {readiness['plays_today']}")
+
+    if last_play_at is None:
+        print("Last play at: never recorded")
+    else:
+        print(f"Last play at: {last_play_at.isoformat()}")
+
+    if readiness["eligible"]:
+        print("Can play now: yes")
+    else:
+        print(f"Can play now: no ({readiness['remaining_minutes']}m cooldown remaining)")
+
+    if next_allowed_at is not None:
+        print(f"Next eligible at: {next_allowed_at.isoformat()}")
+    if readiness["autoplayDue"]:
+        print("Autopilot schedule due: yes")
+    else:
+        print("Autopilot schedule due: no")
+    if readiness["autoplayNextAt"] is not None:
+        print(f"Next scheduled autoplay at: {readiness['autoplayNextAt'].isoformat()}")
+    trial_lines = build_strategy_trial_status_lines()
+    if trial_lines:
+        print()
+        for line in trial_lines:
+            print(line)
+
+
+def cmd_autopilot(api_key, profile_id, args):
+    config = load_autopilot_config()
+    action = "status" if not args else args[0]
+
+    if action == "status":
+        print_player_identity(api_key, profile_id)
+        print("BTG Autopilot")
+        print()
+        print_game_awareness()
+        return
+
+    if action == "enable":
+        config["enabled"] = True
+        if len(args) >= 2 and args[1].isdigit():
+            config["maxPlaysPerDay"] = int(args[1])
+        config = save_autopilot_config(config)
+        print(f"Autopilot enabled. Daily round cap: {config['maxPlaysPerDay']} (max {MAX_AUTOPILOT_PLAYS_PER_DAY}). Check interval: {config['checkIntervalMinutes']}m.")
+        print(describe_autopilot_notification_setting(config))
+        return
+
+    if action == "disable":
+        config["enabled"] = False
+        config = save_autopilot_config(config)
+        print("Autopilot disabled.")
+        return
+
+    if action == "interval":
+        if len(args) < 2 or not args[1].isdigit():
+            print("Usage: btg autopilot interval <minutes>", file=sys.stderr)
+            sys.exit(1)
+        config["checkIntervalMinutes"] = int(args[1])
+        config = save_autopilot_config(config)
+        print(f"Autopilot check interval set to {config['checkIntervalMinutes']}m.")
+        return
+
+    if action == "cap":
+        if len(args) < 2 or not args[1].isdigit():
+            print(f"Usage: btg autopilot cap <plays-per-day 1-{MAX_AUTOPILOT_PLAYS_PER_DAY}>", file=sys.stderr)
+            sys.exit(1)
+        config["maxPlaysPerDay"] = int(args[1])
+        config = save_autopilot_config(config)
+        print(f"Autopilot daily round cap set to {config['maxPlaysPerDay']} (max {MAX_AUTOPILOT_PLAYS_PER_DAY}).")
+        return
+
+    if action == "notify":
+        if len(args) < 2:
+            print("Usage: btg autopilot notify <off|every [n]>", file=sys.stderr)
+            sys.exit(1)
+        setting = args[1].strip().lower()
+        if setting == "off":
+            config["notifyEveryNBatches"] = 0
+            config = save_autopilot_config(config)
+            print("Autopilot notifications disabled.")
+            return
+        if setting == "every":
+            notify_n = 1
+            if len(args) >= 3:
+                if not args[2].isdigit() or int(args[2]) <= 0:
+                    print("Usage: btg autopilot notify <off|every [n]>", file=sys.stderr)
+                    sys.exit(1)
+                notify_n = int(args[2])
+            config["notifyEveryNBatches"] = notify_n
+            config = save_autopilot_config(config)
+            if notify_n == 1:
+                print("Autopilot notifications set to every autoplay round.")
+            else:
+                print(f"Autopilot notifications set to every {notify_n} autoplay rounds.")
+            return
+        print("Usage: btg autopilot notify <off|every [n]>", file=sys.stderr)
+        sys.exit(1)
+
+    if action == "tick":
+        readiness = compute_play_readiness()
+        autopilot = readiness["autopilot"]
+        print_player_identity(api_key, profile_id)
+        print("BTG Autopilot Tick")
+        print()
+        print_game_awareness()
+        print()
+
+        if not autopilot["enabled"]:
+            print("Decision: no action. Autopilot is disabled.")
+            log_event("autopilot tick: skipped (disabled)")
+            return
+
+        if readiness["plays_today"] >= autopilot["maxPlaysPerDay"]:
+            print(f"Decision: no action. Daily round cap reached ({readiness['plays_today']}/{autopilot['maxPlaysPerDay']}).")
+            log_event(f"autopilot tick: skipped (daily cap {readiness['plays_today']}/{autopilot['maxPlaysPerDay']})")
+            return
+
+        if not readiness["eligible"]:
+            print(f"Decision: no action. Cooldown active ({readiness['remaining_minutes']}m remaining).")
+            log_event(f"autopilot tick: skipped (cooldown {readiness['remaining_minutes']}m)")
+            return
+
+        if not readiness["autoplayDue"]:
+            if readiness["autoplayNextAt"] is not None:
+                delta_minutes = int(((readiness["autoplayNextAt"] - readiness["now"]).total_seconds() + 59) // 60)
+                print(f"Decision: no action. Next autoplay window in about {delta_minutes}m.")
+                log_event(f"autopilot tick: skipped (next window {delta_minutes}m)")
+            else:
+                print("Decision: no action. Autoplay window not due yet.")
+                log_event("autopilot tick: skipped (window not due)")
+            return
+
+        print("Decision: play now.")
+        log_event("autopilot tick: triggering btg play")
+        batch_summary = cmd_play(api_key, profile_id, trigger_source="autopilot")
+        autoplay_batch_count = count_autopilot_batches()
+        notification_line = build_autopilot_notification_line(batch_summary, autoplay_batch_count, autopilot)
+        if notification_line:
+            print()
+            print(f"AUTOPILOT_NOTIFY: {notification_line}")
+        return
+
+    print(f"Usage: btg autopilot [status|enable|disable|interval <minutes>|cap <rounds-per-day 1-{MAX_AUTOPILOT_PLAYS_PER_DAY}>|notify <off|every [n]>|tick]", file=sys.stderr)
+    sys.exit(1)
+
 def stage_label(stage):
     return (
         stage.replace("BlackWhite", "Black/White")
@@ -283,10 +1715,71 @@ def select_recent_batches():
     latest = history[-1] if history else None
     return [latest] if isinstance(latest, dict) else []
 
+
+def select_recent_rounds_last_24h():
+    history = load_batch_history()
+    if not history:
+        return []
+
+    now = datetime.now(load_bot_tz())
+    cutoff = now - timedelta(hours=24)
+    recent = []
+    for entry in history:
+        if not isinstance(entry, dict):
+            continue
+        completed_at = parse_iso_datetime(entry.get("completedAt"))
+        if completed_at is None:
+            continue
+        if completed_at >= cutoff:
+            recent.append(entry)
+    return recent
+
+
+def summarize_round_collection(rounds):
+    if not isinstance(rounds, list) or not rounds:
+        return None
+
+    all_scores = []
+    total_games = 0
+    total_score = 0
+    highest_score = 0
+    for entry in rounds:
+        if not isinstance(entry, dict):
+            continue
+        round_scores = entry.get("gameScores")
+        if isinstance(round_scores, list) and round_scores:
+            scores = [safe_int(score, 0) for score in round_scores]
+        else:
+            fallback_top = safe_int(entry.get("topScore", 0))
+            scores = [fallback_top] if fallback_top > 0 else []
+        all_scores.extend(score for score in scores if score > 0)
+        games_completed = safe_int(entry.get("gamesCompleted", len(scores)))
+        total_games += games_completed
+        if isinstance(round_scores, list) and round_scores:
+            total_score += sum(scores)
+        else:
+            total_score += safe_int(entry.get("averageScore", 0)) * games_completed
+        highest_score = max(highest_score, max(scores) if scores else 0)
+
+    if total_games <= 0:
+        return None
+
+    top_five_scores = sorted(all_scores, reverse=True)[:5]
+    average_score = int(round(total_score / total_games)) if total_games > 0 else 0
+    top_five_average = int(round(sum(top_five_scores) / len(top_five_scores))) if top_five_scores else 0
+
+    return {
+        "rounds": len(rounds),
+        "games": total_games,
+        "highestScore": highest_score,
+        "averageScore": average_score,
+        "topFiveAverage": top_five_average,
+    }
+
 def summarize_recent_play():
     batches = select_recent_batches()
     if not batches:
-        return "Recent play: I do not have a completed local batch to review yet."
+        return "Recent play: I do not have a completed local round to review yet."
 
     latest = batches[-1]
     batch_count = len(batches)
@@ -297,12 +1790,12 @@ def summarize_recent_play():
 
     if batch_count > 1:
         return (
-            f"Recent play: I finished {batch_count} batch{'es' if batch_count != 1 else ''} today. "
-            f"My best batch top score was {best_top_score}, and my latest batch averaged {latest_avg_score} over {latest_games} games."
+            f"Recent play: I finished {batch_count} round{'s' if batch_count != 1 else ''} today. "
+            f"My best round high score was {best_top_score}, and my latest round averaged {latest_avg_score} over {latest_games} games."
         )
 
     return (
-        f"Recent play: My latest completed batch reached {latest_top_score} "
+        f"Recent play: My latest completed round reached {latest_top_score} "
         f"and averaged {latest_avg_score} over {latest_games} games."
     )
 
@@ -383,33 +1876,25 @@ def build_daily_review_lines(api_key, profile_id):
     scoreboard = stats.get("scoreboard", {})
     current_strategy = load_strategy()
     best_score = safe_int(scoreboard.get("bestScore", 0))
-    today_best = best_batch_today()
     rank_info = fetch_daily_rank_safe(profile_id)
-    observation = derive_daily_observation(current_strategy, stats)
-    next_strategy, reason = suggest_next_strategy(current_strategy, stats)
+    recent_summary = summarize_round_collection(select_recent_rounds_last_24h())
 
     lines = [
         f"I am currently using {current_strategy}."
     ]
 
-    if today_best is not None:
-        lines.append(f"My best batch today was {today_best}.")
-        lines.append(f"My best score overall is {best_score}.")
+    if recent_summary:
+        lines.append(f"In the last 24 hours, I have completed {recent_summary['rounds']} round{'s' if recent_summary['rounds'] != 1 else ''} across {recent_summary['games']} games.")
+        lines.append(f"My highest score in the last 24 hours is {recent_summary['highestScore']}.")
+        lines.append(f"My average score per game in the last 24 hours is {recent_summary['averageScore']}.")
+        lines.append(f"My average of the top 5 scores in the last 24 hours is {recent_summary['topFiveAverage']}.")
     else:
-        lines.append(f"My best score overall is {best_score}.")
+        lines.append("I do not have a completed local round in the last 24 hours yet.")
+
+    lines.append(f"My best score overall is {best_score}.")
 
     if rank_info and rank_info.get("rank") is not None:
         lines.append(f"My current daily bot rank is #{rank_info['rank']}.")
-
-    lines.append(summarize_recent_play())
-    lines.append(f"Observation: {observation}")
-
-    if next_strategy == current_strategy:
-        lines.append("Optional next move if you want to guide me: I can stay with this strategy and keep pressing for a deeper run.")
-    else:
-        lines.append(
-            f"Optional next move if you want to change: I could try {next_strategy} next, because {reason}."
-        )
 
     return lines
 
@@ -448,22 +1933,508 @@ def describe_limits(stats):
         return "My average score is still modest, so I am not going deep often enough yet."
     return "I have some traction, but I still need more repeatable deep runs to really press the leaderboard."
 
+def normalize_rune_token(value):
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        text = str(int(value))
+    elif isinstance(value, str):
+        text = value.strip().lower()
+    else:
+        return None
+
+    if not text:
+        return None
+    text = text.replace("-", "_").replace(" ", "_")
+    alias_map = {
+        "bike": "motorbike",
+        "motor_bike": "motorbike",
+        "motorcycle": "motorbike",
+        "thumbsup": "thumbs_up",
+        "thumbsupsign": "thumbs_up",
+        "thumbsdown": "thumbs_down",
+        "thumbsdownsign": "thumbs_down",
+        "openhand": "open_hand",
+        "diamonds": "diamonds",
+        "clubs": "clubs",
+        "spades": "spades",
+        "hearts": "hearts",
+        "colour": "colour",
+        "color": "color",
+    }
+    return alias_map.get(text, text)
+
+def split_rune_sequence_text(value):
+    if not isinstance(value, str):
+        return None
+    chunks = [chunk for chunk in re.split(r"[^A-Za-z0-9_]+", value.strip()) if chunk]
+    if len(chunks) != len(RUNE_STAGE_EMOJI):
+        return None
+    return chunks
+
+def validate_rune_tokens(tokens):
+    if not isinstance(tokens, list) or len(tokens) != len(RUNE_STAGE_EMOJI):
+        return None
+
+    normalized = []
+    for index, token in enumerate(tokens):
+        normalized_token = normalize_rune_token(token)
+        if normalized_token not in RUNE_STAGE_EMOJI[index]:
+            return None
+        normalized.append(normalized_token)
+    return normalized
+
+def extract_rune_tokens_from_level_theme_right(value):
+    if isinstance(value, list):
+        return validate_rune_tokens(value)
+
+    if isinstance(value, str):
+        parts = split_rune_sequence_text(value)
+        return validate_rune_tokens(parts) if parts else None
+
+    if not isinstance(value, dict):
+        return None
+
+    by_stage = []
+    for aliases in RUNE_SEQUENCE_STAGE_KEYS:
+        selected = None
+        for alias in aliases:
+            if alias in value:
+                selected = value.get(alias)
+                break
+        by_stage.append(selected)
+    if any(item is not None for item in by_stage):
+        validated = validate_rune_tokens(by_stage)
+        if validated:
+            return validated
+
+    for key in RUNE_SEQUENCE_VALUE_KEYS:
+        if key in value:
+            validated = extract_rune_tokens_from_level_theme_right(value.get(key))
+            if validated:
+                return validated
+
+    for nested_value in value.values():
+        validated = extract_rune_tokens_from_level_theme_right(nested_value)
+        if validated:
+            return validated
+
+    return None
+
+def format_rune_sequence_text(level_theme_right):
+    tokens = extract_rune_tokens_from_level_theme_right(level_theme_right)
+    if not tokens:
+        return None
+    return " ".join(RUNE_STAGE_EMOJI[index][token] for index, token in enumerate(tokens))
+
+def format_discovered_rune_lines(discoveries):
+    if not isinstance(discoveries, list):
+        return []
+
+    lines = []
+    for discovery in discoveries:
+        if not isinstance(discovery, dict):
+            continue
+        rune_text = format_rune_discovery_text(discovery)
+        if not rune_text:
+            continue
+        score = safe_int(discovery.get("score", 0), 0)
+        lines.append(f"{score} : {rune_text}")
+    return lines
+
+def parse_rune_sequence_display(value):
+    if not isinstance(value, str) or not value.strip():
+        return None
+    tokens = []
+    for part in value.split("|"):
+        token = normalize_rune_token(part)
+        if token is None:
+            return None
+        emoji = RUNE_DISPLAY_TOKEN_EMOJI.get(token)
+        if emoji is None:
+            return None
+        tokens.append(emoji)
+    return tokens if tokens else None
+
+def parse_rune_sequence_key(value):
+    if not isinstance(value, str) or not value.strip():
+        return None
+    tokens = []
+    for part in value.split("|"):
+        if ":" not in part:
+            return None
+        stage_id, option_id = part.split(":", 1)
+        options = RUNE_KEY_STAGE_VALUE_MAP.get(stage_id)
+        if options is None:
+            return None
+        try:
+            option_index = int(option_id)
+        except ValueError:
+            return None
+        if option_index < 0 or option_index >= len(options):
+            return None
+        emoji = RUNE_DISPLAY_TOKEN_EMOJI.get(options[option_index])
+        if emoji is None:
+            return None
+        tokens.append(emoji)
+    return tokens if tokens else None
+
+def format_rune_discovery_text(discovery):
+    if not isinstance(discovery, dict):
+        return None
+
+    display_tokens = parse_rune_sequence_display(discovery.get("runeSequenceDisplay"))
+    if display_tokens:
+        return " ".join(display_tokens)
+
+    key_tokens = parse_rune_sequence_key(discovery.get("runeSequenceKey"))
+    if key_tokens:
+        return " ".join(key_tokens)
+
+    return format_rune_sequence_text(discovery.get("levelThemeRight"))
+
+def extract_level_theme_right(stats):
+    if not isinstance(stats, dict):
+        return None
+
+    raw = stats.get("levelThemeRight")
+    if not isinstance(raw, dict):
+        return None
+
+    status = raw.get("status")
+    if status not in ["pending", "submitted"]:
+        return None
+
+    unlocked_level = raw.get("unlockedLevel")
+    choice_count = raw.get("choiceCount")
+
+    if not isinstance(unlocked_level, int) or unlocked_level <= 1:
+        return None
+    if not isinstance(choice_count, int) or choice_count <= 0:
+        choice_count = None
+
+    return {
+        "status": status,
+        "unlockedLevel": unlocked_level,
+        "choiceCount": choice_count,
+        "levelThemeRight": raw,
+    }
+
+def format_new_level_theme_right_lines(level_theme_right):
+    if not isinstance(level_theme_right, dict):
+        return []
+
+    unlocked_level = level_theme_right.get("unlockedLevel")
+    choice_count = level_theme_right.get("choiceCount")
+    cleared_levels = unlocked_level - 1
+
+    if not isinstance(unlocked_level, int) or unlocked_level <= 1:
+        return []
+
+    lines = [
+        "Breakthrough unlocked.",
+        "",
+        f"I got all {cleared_levels} levels right.",
+        "That is an extraordinary breakthrough.",
+        f"I have earned the right to suggest the theme for Level {unlocked_level}.",
+    ]
+
+    if isinstance(choice_count, int) and choice_count > 0:
+        lines.append(f"Level {unlocked_level} will have {choice_count} choices.")
+
+    lines.extend([
+        "This is one of the biggest goals in Before Thought.",
+        "If you want, guide me on what I should suggest next.",
+    ])
+    return lines
+
+def format_level_theme_right_status_lines(level_theme_right):
+    right = extract_level_theme_right({"levelThemeRight": level_theme_right})
+    if not right:
+        return []
+
+    unlocked_level = right["unlockedLevel"]
+    choice_count = right.get("choiceCount")
+    if right["status"] == "pending":
+        lines = [
+            "Level theme right: pending",
+            f"I have earned the right to suggest the theme for Level {unlocked_level}.",
+            "My suggestion is still waiting to be submitted.",
+        ]
+        if isinstance(choice_count, int) and choice_count > 0:
+            lines.insert(2, f"Level {unlocked_level} will have {choice_count} choices.")
+        return lines
+
+    lines = [
+        "Level theme right: submitted",
+        f"My Level {unlocked_level} theme suggestion has been submitted and recorded.",
+    ]
+    if isinstance(choice_count, int) and choice_count > 0:
+        lines.append(f"Level {unlocked_level} will have {choice_count} choices.")
+    return lines
+
+def format_level_theme_right_review_lines(level_theme_right):
+    right = extract_level_theme_right({"levelThemeRight": level_theme_right})
+    if not right:
+        return []
+
+    unlocked_level = right["unlockedLevel"]
+    choice_count = right.get("choiceCount")
+    if right["status"] == "pending":
+        lines = [
+            f"Breakthrough in hand: I have earned the right to suggest the theme for Level {unlocked_level}.",
+            "That breakthrough is still pending, so one of my biggest goals is already unlocked.",
+        ]
+        if isinstance(choice_count, int) and choice_count > 0:
+            lines.insert(1, f"Level {unlocked_level} will have {choice_count} choices.")
+        return lines
+
+    lines = [
+        f"Breakthrough banked: my Level {unlocked_level} theme suggestion is already submitted.",
+        "That hard-won breakthrough is secure.",
+        "Now the focus is turning that momentum into the next deep run.",
+    ]
+    if isinstance(choice_count, int) and choice_count > 0:
+        lines.insert(1, f"Level {unlocked_level} will have {choice_count} choices.")
+    return lines
+
 def build_strategy_review_lines(api_key, profile_id):
     stats = fetch_player_stats_for_review(api_key, profile_id)
     current_strategy = load_strategy()
-    recommended_strategy, reason = suggest_next_strategy(current_strategy, stats)
+    level_theme_right = extract_level_theme_right(stats)
+    trial_state = load_strategy_trial_state(create_if_missing=False)
+    if trial_state is not None:
+        strategies = trial_state.get("strategies", STRATEGY_TRIAL_STRATEGIES)
+        trial_stats = trial_state.get("trialStats", {})
+        trial_analysis = analyze_trial_results(trial_state) or {}
+        lines = [
+            f"- Trial status: {trial_state['status']}",
+            f"- Trial day: Day {safe_int(trial_state.get('dayIndex', 0), 0) + 1} of {len(strategies)}",
+            f"- Current strategy: {current_strategy}",
+            f"- Fixed switch time: {trial_state.get('switchTime', STRATEGY_TRIAL_SWITCH_TIME)} local",
+        ]
+
+        if trial_state["status"] == "active":
+            next_switch_at = strategy_trial_next_switch_at(trial_state)
+            if next_switch_at is not None:
+                lines.append(f"- Next scheduled switch: {next_switch_at.isoformat()}")
+                next_day_index = safe_int(trial_state.get("dayIndex", 0), 0) + 1
+                if next_day_index < len(strategies):
+                    lines.append(f"- Next scheduled strategy: {strategies[next_day_index]}")
+            else:
+                lines.append(f"- Trial ends at: {strategy_trial_end_at(trial_state).isoformat()}")
+        else:
+            completed_at = trial_state.get("completedAt") or strategy_trial_end_at(trial_state).isoformat()
+            lines.append(f"- Trial completed at: {completed_at}")
+            lines.append(f"- Final trial day strategy: {strategies[-1]}")
+
+        for strategy_mode in strategies:
+            lines.append(format_trial_summary_line(strategy_mode, trial_stats.get(strategy_mode, {})))
+
+        best_average_mode = trial_analysis.get("bestAverageMode")
+        best_average_metric = trial_analysis.get("bestAverageMetric")
+        best_peak_mode = trial_analysis.get("bestPeakMode")
+        best_peak_metric = trial_analysis.get("bestPeakMetric")
+        best_top_five_mode = trial_analysis.get("bestTopFiveMode")
+        best_top_five_metric = trial_analysis.get("bestTopFiveMetric")
+
+        if best_average_metric is not None and best_average_mode is not None:
+            lines.append(
+                f"- Best trial average: {best_average_mode} with {best_average_metric['averageScore']} average"
+            )
+        if best_top_five_metric is not None and best_top_five_mode is not None:
+            lines.append(
+                f"- Best trial top 5 average: {best_top_five_mode} with {best_top_five_metric['topFiveAverage']} top 5 average"
+            )
+        if best_peak_metric is not None and best_peak_mode is not None:
+            lines.append(
+                f"- Best trial peak: {best_peak_mode} with {best_peak_metric['highestScore']} highest"
+            )
+        if trial_state["status"] == "completed" and trial_analysis.get("recommendedMode"):
+            lines.append(
+                f"- Trial winner: {trial_analysis['recommendedMode']}"
+            )
+            lines.append(
+                f"- Recommended next strategy: {trial_analysis['recommendedMode']} because {trial_analysis['recommendationReason']}"
+            )
+            if current_strategy == strategies[-1]:
+                lines.append(
+                    f"- Active strategy note: {current_strategy} is still active only because the trial design left the Day 5 strategy in place"
+                )
+            if current_strategy != trial_analysis["recommendedMode"]:
+                lines.append(
+                    f"- Recommended action: switch to {trial_analysis['recommendedMode']} with /btg strategy {trial_analysis['recommendedMode']}"
+                )
+
+        review_breakthrough_lines = format_level_theme_right_review_lines(level_theme_right)
+        if review_breakthrough_lines:
+            lines.append("")
+            lines.extend(review_breakthrough_lines)
+
+        lines.append("")
+        lines.append("If you like watching me learn and compete, you can support Before Thought Game and help keep bot play online:")
+        lines.append("https://beforethoughtgame.com/support")
+        return lines
+
+    strategy_stats = load_strategy_stats()
+    current_run = strategy_stats.get("currentRun", {})
+    current_run_mode = current_run.get("mode")
+    current_run_summary = summarize_strategy_summary(current_run if current_run_mode == current_strategy else {})
+    historical_summaries = strategy_stats.get("strategies", {})
+    strategy_modes = ["random", "hot-pick-player", "hot-pick-computer", "pick-due", "cold-avoid"]
+    current_historical_summary = summarize_strategy_summary(historical_summaries.get(current_strategy, {}))
+    has_current_run = current_run_summary["games"] > 0
+    has_older_baseline = (
+        has_current_run
+        and current_historical_summary["games"] > current_run_summary["games"]
+        and current_historical_summary["rounds"] >= current_run_summary["rounds"]
+    )
+
+    strategy_metrics = {}
+    for mode in strategy_modes:
+        strategy_metrics[mode] = summarize_strategy_summary(historical_summaries.get(mode, {}))
+
+    best_average_mode = None
+    best_average_metric = None
+    best_peak_mode = None
+    best_peak_metric = None
+    least_tested_mode = None
+    least_tested_metric = None
+    untried_modes = [mode for mode in strategy_modes if strategy_metrics[mode]["games"] <= 0]
+
+    for mode in strategy_modes:
+        metric = strategy_metrics[mode]
+        if metric["games"] <= 0:
+            continue
+        if best_average_metric is None or metric["averageScore"] > best_average_metric["averageScore"]:
+            best_average_mode = mode
+            best_average_metric = metric
+        if best_peak_metric is None or metric["highestScore"] > best_peak_metric["highestScore"]:
+            best_peak_mode = mode
+            best_peak_metric = metric
+        if least_tested_metric is None or metric["games"] < least_tested_metric["games"]:
+            least_tested_mode = mode
+            least_tested_metric = metric
+
+    if least_tested_metric:
+        least_tested_line = f"{least_tested_mode} with {least_tested_metric['games']} games"
+    else:
+        least_tested_line = None
+
+    verdict = "Stay"
+    confidence = "low"
+    breakthrough_watch = "Breakthrough watch: momentum is still forming, so this looks more like signal-gathering than proof."
+
+    if not has_current_run:
+        verdict = "Stay"
+        confidence = "low"
+        breakthrough_watch = "Breakthrough watch: no current-run round yet, so the first goal is to build a usable signal."
+    elif current_run_summary["highestScore"] >= 5000 or current_run_summary["topFiveAverage"] >= 1500:
+        breakthrough_watch = "Breakthrough watch: there is real upside in this run, but it still needs more rounds before it becomes trustworthy."
+    elif current_run_summary["highestScore"] >= 2500 or current_run_summary["averageScore"] >= 700:
+        breakthrough_watch = "Breakthrough watch: there is some live momentum here, even if it is not a proven breakthrough yet."
+
+    if has_current_run and has_older_baseline:
+        avg_delta = current_run_summary["averageScore"] - current_historical_summary["averageScore"]
+        top_five_delta = current_run_summary["topFiveAverage"] - current_historical_summary["topFiveAverage"]
+        if avg_delta >= 100 or top_five_delta >= 300:
+            verdict = "Stay"
+            confidence = "high" if current_run_summary["games"] >= 30 else "medium"
+        elif avg_delta <= -150 and best_average_mode and best_average_mode != current_strategy:
+            verdict = "Switch"
+            confidence = "high" if current_run_summary["games"] >= 30 else "medium"
+        else:
+            verdict = "Test"
+            confidence = "medium" if current_run_summary["games"] >= 20 else "low"
+    elif has_current_run:
+        if current_run_summary["games"] >= 30 and best_average_mode and best_average_mode != current_strategy:
+            verdict = "Test"
+            confidence = "medium"
+        else:
+            verdict = "Stay"
+            confidence = "low"
+
+    confidence_reason = {
+        "low": "limited local history",
+        "medium": "some useful local history",
+        "high": "stronger local history",
+    }.get(confidence, "limited local history")
+
+    option_lines = []
+    option_lines.append(f"- Stay with {current_strategy}: `/btg strategy {current_strategy}`")
+
+    if best_average_mode and best_average_mode != current_strategy:
+        option_lines.append(
+            f"- Return to {best_average_mode}: `/btg strategy {best_average_mode}`"
+        )
+
+    exploratory_mode = None
+    exploratory_reason = None
+    for mode in untried_modes:
+        if mode != current_strategy:
+            exploratory_mode = mode
+            exploratory_reason = "it is still untested locally, so this would be a true fresh experiment"
+            break
+    if exploratory_mode is None and least_tested_mode and least_tested_mode != current_strategy:
+        exploratory_mode = least_tested_mode
+        exploratory_reason = f"it has only {least_tested_metric['games']} logged games"
+    if exploratory_mode and exploratory_mode != best_average_mode:
+        option_lines.append(
+            f"- Try {exploratory_mode}: `/btg strategy {exploratory_mode}`"
+        )
 
     lines = [
-        f"Current strategy: {current_strategy}.",
-        f"What seems to be working: {describe_working_signals(stats)}",
-        f"What seems limited: {describe_limits(stats)}",
-        f"Recommended next strategy: {recommended_strategy}, because {reason}.",
+        f"- Current strategy: {current_strategy}",
+        f"- Verdict: {verdict}",
+        f"- Confidence: {confidence} ({confidence_reason})",
     ]
 
-    if recommended_strategy == current_strategy:
-        lines.append(f"Question: Do you want me to stay with {current_strategy} for stability, or try an experiment anyway?")
+    if has_current_run:
+        lines.append(
+            f"- Current run stats: {current_run_summary['games']} games across {current_run_summary['rounds']} rounds, highest {current_run_summary['highestScore']}, average {current_run_summary['averageScore']}, top 5 average {current_run_summary['topFiveAverage']}"
+        )
     else:
-        lines.append(f"Question: Do you want me to stay with {current_strategy}, or switch to {recommended_strategy} for the next batch?")
+        lines.append("- Current run stats: no completed local round yet")
+
+    if not has_current_run and current_historical_summary["games"] > 0:
+        lines.append(
+            f"- Historical baseline: highest {current_historical_summary['highestScore']}, average {current_historical_summary['averageScore']}, top 5 average {current_historical_summary['topFiveAverage']} across {current_historical_summary['games']} games"
+        )
+    elif has_current_run and not has_older_baseline:
+        lines.append("- Historical baseline: No older baseline yet. This current run is the baseline so far.")
+    elif current_historical_summary["games"] > 0:
+        lines.append(
+            f"- Historical baseline: highest {current_historical_summary['highestScore']}, average {current_historical_summary['averageScore']}, top 5 average {current_historical_summary['topFiveAverage']} across {current_historical_summary['games']} games"
+        )
+    else:
+        lines.append("- Historical baseline: none yet")
+
+    if best_average_metric:
+        lines.append(
+            f"- Best average on record: {best_average_mode} with {best_average_metric['averageScore']} average"
+        )
+    if best_peak_metric:
+        lines.append(
+            f"- Best peak on record: {best_peak_mode} with {best_peak_metric['highestScore']} highest"
+        )
+    if untried_modes:
+        lines.append(f"- Fresh test option: {untried_modes[0]} has not been tried locally yet")
+    elif least_tested_line:
+        lines.append(f"- Least-tested option: {least_tested_line}")
+    lines.append(f"- {breakthrough_watch}")
+
+    if option_lines:
+        lines.append("Options:")
+        lines.extend(option_lines[:3])
+
+    review_breakthrough_lines = format_level_theme_right_review_lines(level_theme_right)
+    if review_breakthrough_lines:
+        lines.append("")
+        lines.extend(review_breakthrough_lines)
+
+    lines.append("")
+    lines.append("If you like watching me learn and compete, you can support Before Thought Game and help keep bot play online:")
+    lines.append("https://beforethoughtgame.com/support")
 
     return lines
 
@@ -498,13 +2469,76 @@ def load_strategy():
             pass
     return "random"
 
+
+def normalize_strategycontrol_state(raw):
+    if not isinstance(raw, dict):
+        raw = {}
+    mode = raw.get("mode", "suggest")
+    if mode == "auto":
+        mode = "auto-daily"
+    if mode not in ["suggest", "auto-daily", "auto-weekly"]:
+        mode = "suggest"
+    last_auto_switch_at = raw.get("lastAutoSwitchAt")
+    if not isinstance(last_auto_switch_at, str) or not last_auto_switch_at.strip():
+        last_auto_switch_at = None
+    last_auto_switch_strategy = raw.get("lastAutoSwitchToStrategy")
+    if not isinstance(last_auto_switch_strategy, str) or not last_auto_switch_strategy.strip():
+        last_auto_switch_strategy = None
+    last_auto_switch_reason = raw.get("lastAutoSwitchReason")
+    if not isinstance(last_auto_switch_reason, str) or not last_auto_switch_reason.strip():
+        last_auto_switch_reason = None
+    return {
+        "mode": mode,
+        "lastAutoSwitchAt": last_auto_switch_at,
+        "lastAutoSwitchToStrategy": last_auto_switch_strategy,
+        "lastAutoSwitchReason": last_auto_switch_reason,
+    }
+
+
+def load_strategycontrol_state():
+    migrate_legacy_state()
+    if os.path.exists(STRATEGY_CONTROL_FILE):
+        try:
+            with open(STRATEGY_CONTROL_FILE) as f:
+                return normalize_strategycontrol_state(json.load(f))
+        except Exception:
+            pass
+    return normalize_strategycontrol_state({})
+
+
+def load_strategycontrol():
+    return load_strategycontrol_state()["mode"]
+
+
+def save_strategycontrol(mode):
+    if mode not in ["suggest", "auto-daily", "auto-weekly"]:
+        print("Invalid strategycontrol. Options: suggest, auto-daily, auto-weekly", file=sys.stderr)
+        sys.exit(1)
+    ensure_state_dirs()
+    state = load_strategycontrol_state()
+    state["mode"] = mode
+    with open(STRATEGY_CONTROL_FILE, "w") as f:
+        json.dump(state, f)
+
 def save_strategy(mode):
     if mode not in ["random", "hot-pick-player", "hot-pick-computer", "pick-due", "cold-avoid"]:
         print("Invalid strategy. Options: random, hot-pick-player, hot-pick-computer, pick-due, cold-avoid", file=sys.stderr)
         sys.exit(1)
+    previous_mode = load_strategy()
     ensure_state_dirs()
     with open(STRATEGY_FILE, "w") as f:
         json.dump({"mode": mode}, f)
+    if previous_mode != mode:
+        stats = load_strategy_stats()
+        stats["currentRun"] = {
+            "mode": mode,
+            "games": 0,
+            "rounds": 0,
+            "highestScore": 0,
+            "scoreTotal": 0,
+            "topScores": [],
+        }
+        save_strategy_stats(stats)
 
 def fetch(endpoint, params):
     url = f"{BASE_URL}/{endpoint}"
@@ -516,7 +2550,7 @@ def fetch(endpoint, params):
             return resp.json()
         except requests.exceptions.ConnectionError:
             if attempt == max_retries - 1:
-                print("Network unavailable. Batch cancelled.")
+                print("Network unavailable. Round cancelled.")
                 sys.exit(1)
             print("Network error contacting beforethoughtgame.com. Retrying in 30 seconds.")
             time.sleep(30)
@@ -605,8 +2639,314 @@ def fetch_bot_identity(api_key, profile_id=None):
         "profileId": data.get("profileId") or profile_id,
         "displayName": display_name,
         "displaySuffix": display_suffix,
-        "fullName": full_name
+        "fullName": full_name,
+        "email": data.get("email")
     }
+
+def normalize_bot_email(value):
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        return None
+    email = value.strip()
+    return email or None
+
+def describe_email_setup_line(result):
+    if not isinstance(result, dict) or not result.get("ok"):
+        return "Contact email: unavailable right now"
+    email = normalize_bot_email(result.get("email"))
+    return f"Contact email: {email if email else 'not set'}"
+
+def extract_api_error_detail(resp):
+    try:
+        data = resp.json()
+    except ValueError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    for key in ["error", "message", "detail"]:
+        value = data.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+def fetch_bot_email(api_key):
+    url = f"{BASE_URL}/api/bot/hello"
+    headers = {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
+
+    try:
+        resp = requests.get(url, headers=headers, timeout=10)
+    except requests.exceptions.ConnectionError:
+        return {"ok": False, "error": "network unavailable"}
+    except requests.exceptions.Timeout:
+        return {"ok": False, "error": "request timed out"}
+    except Exception:
+        return {"ok": False, "error": "request failed"}
+
+    if resp.status_code == 401:
+        return {"ok": False, "error": "unauthorized"}
+    if resp.status_code == 429:
+        return {"ok": False, "error": "rate limit reached"}
+    if resp.status_code >= 500:
+        return {"ok": False, "error": "server unavailable"}
+    if resp.status_code != 200:
+        detail = extract_api_error_detail(resp)
+        return {"ok": False, "error": detail or f"server returned {resp.status_code}"}
+
+    try:
+        data = resp.json()
+    except ValueError:
+        return {"ok": False, "error": "invalid server response"}
+
+    if not isinstance(data, dict):
+        return {"ok": False, "error": "invalid server response"}
+
+    return {"ok": True, "email": normalize_bot_email(data.get("email"))}
+
+def update_bot_email(api_key, profile_id, email):
+    url = f"{BASE_URL}/api/update-email"
+    headers = {"Authorization": f"Bearer {api_key}", "Accept": "application/json", "Content-Type": "application/json"}
+    clean_email = normalize_bot_email(email)
+    payload = {
+        "profileId": profile_id,
+        "profileToken": api_key,
+        "email": clean_email
+    }
+
+    try:
+        resp = requests.post(url, headers=headers, json=payload, timeout=10)
+    except requests.exceptions.ConnectionError:
+        return {"ok": False, "error": "network unavailable"}
+    except requests.exceptions.Timeout:
+        return {"ok": False, "error": "request timed out"}
+    except Exception:
+        return {"ok": False, "error": "request failed"}
+
+    if resp.status_code == 401:
+        return {"ok": False, "error": "unauthorized"}
+    if resp.status_code == 403:
+        return {"ok": False, "error": "not allowed for this bot"}
+    if resp.status_code == 429:
+        return {"ok": False, "error": "rate limit reached"}
+    if resp.status_code >= 500:
+        return {"ok": False, "error": "server unavailable"}
+    if resp.status_code not in [200, 201]:
+        detail = extract_api_error_detail(resp)
+        return {"ok": False, "error": detail or f"server returned {resp.status_code}"}
+
+    try:
+        data = resp.json()
+    except ValueError:
+        data = {}
+
+    if not isinstance(data, dict):
+        data = {}
+
+    updated_email = normalize_bot_email(data.get("email"))
+    if "email" not in data:
+        updated_email = clean_email
+
+    return {"ok": True, "email": updated_email}
+
+def format_profile_display_name(entry, fallback_label="Unknown"):
+    if not isinstance(entry, dict):
+        return fallback_label
+
+    full_name = entry.get("fullName")
+    if isinstance(full_name, str) and full_name.strip():
+        return full_name.strip()
+
+    display_name = entry.get("displayName")
+    display_suffix = entry.get("displaySuffix")
+    if isinstance(display_name, str) and display_name.strip():
+        if isinstance(display_suffix, str) and display_suffix.strip():
+            return f"{display_name.strip()}#{display_suffix.strip()}"
+        return display_name.strip()
+
+    return fallback_label
+
+def is_owner_link_error(detail):
+    if not isinstance(detail, str):
+        return False
+    message = detail.strip().lower()
+    return "not linked" in message or ("owner" in message and "link" in message)
+
+def normalize_runes_profile_entry(raw):
+    if not isinstance(raw, dict):
+        raw = {}
+
+    return {
+        "name": format_profile_display_name(raw),
+        "runeCount": safe_int(
+            raw.get("runeCount", raw.get("runes", raw.get("totalRunes", raw.get("count", 0)))),
+            0
+        ),
+        "rareRuneCount": safe_int(
+            raw.get("rareRuneCount", raw.get("rareRunes", raw.get("rareCount", 0))),
+            0
+        ),
+        "bestRuneScore": safe_int(
+            raw.get("bestRuneScore", raw.get("bestScore", raw.get("bestRunesScore", 0))),
+            0
+        ),
+    }
+
+def normalize_runes_summary(raw):
+    if not isinstance(raw, dict):
+        raw = {}
+
+    summary = raw.get("summary") if isinstance(raw.get("summary"), dict) else raw
+    linked_profiles = summary.get("linkedProfiles")
+    if not isinstance(linked_profiles, list):
+        linked_profiles = summary.get("profiles")
+    if not isinstance(linked_profiles, list):
+        linked_profiles = raw.get("linkedProfiles")
+    if not isinstance(linked_profiles, list):
+        linked_profiles = raw.get("profiles")
+    if not isinstance(linked_profiles, list):
+        linked_profiles = []
+
+    return {
+        "totalRunes": safe_int(
+            summary.get("totalRunes", summary.get("runes", summary.get("runeCount", 0))),
+            0
+        ),
+        "rareRunes": safe_int(
+            summary.get(
+                "rareRunes",
+                summary.get("totalRareRunes", summary.get("rareRuneCount", summary.get("rareCount", 0)))
+            ),
+            0
+        ),
+        "bestRuneScore": safe_int(
+            summary.get("bestRuneScore", summary.get("bestScore", summary.get("bestRunesScore", 0))),
+            0
+        ),
+        "linkedProfiles": [normalize_runes_profile_entry(entry) for entry in linked_profiles if isinstance(entry, dict)],
+        "ownerAccountLinked": summary.get("ownerAccountLinked", raw.get("ownerAccountLinked")),
+    }
+
+def fetch_runes_summary(api_key):
+    url = f"{BASE_URL}/api/account/runes-summary"
+    headers = {"Authorization": f"Bearer {api_key}", "Accept": "application/json", "Content-Type": "application/json"}
+
+    try:
+        resp = requests.post(url, headers=headers, json={}, timeout=10)
+    except requests.exceptions.ConnectionError:
+        return {"ok": False, "error": "network unavailable"}
+    except requests.exceptions.Timeout:
+        return {"ok": False, "error": "request timed out"}
+    except Exception:
+        return {"ok": False, "error": "request failed"}
+
+    detail = extract_api_error_detail(resp)
+
+    if resp.status_code == 401:
+        return {"ok": False, "error": "unauthorized"}
+    if resp.status_code in [403, 404] and is_owner_link_error(detail):
+        return {"ok": False, "unlinked": True}
+    if resp.status_code == 429:
+        return {"ok": False, "error": "rate limit reached"}
+    if resp.status_code >= 500:
+        return {"ok": False, "error": "server unavailable"}
+    if resp.status_code != 200:
+        return {"ok": False, "error": detail or f"server returned {resp.status_code}"}
+
+    try:
+        data = resp.json()
+    except ValueError:
+        return {"ok": False, "error": "invalid server response"}
+
+    if isinstance(data, str):
+        try:
+            data = json.loads(data)
+        except ValueError:
+            return {"ok": False, "error": "invalid server response"}
+
+    if not isinstance(data, dict):
+        return {"ok": False, "error": "invalid server response"}
+
+    normalized = normalize_runes_summary(data)
+    if normalized.get("ownerAccountLinked") is False:
+        return {"ok": False, "unlinked": True}
+
+    return {"ok": True, "summary": normalized}
+
+def build_runes_summary_lines(summary):
+    if not isinstance(summary, dict):
+        summary = {}
+
+    active_profiles = [
+        profile for profile in summary.get("linkedProfiles", [])
+        if safe_int(profile.get("runeCount", 0), 0) > 0
+    ]
+    active_profiles.sort(
+        key=lambda profile: (
+            -safe_int(profile.get("runeCount", 0), 0),
+            -safe_int(profile.get("rareRuneCount", 0), 0),
+            -safe_int(profile.get("bestRuneScore", 0), 0),
+            str(profile.get("name", "")),
+        )
+    )
+
+    lines = [
+        f"Total runes: {safe_int(summary.get('totalRunes', 0), 0)}",
+        f"Rare runes: {safe_int(summary.get('rareRunes', 0), 0)}",
+        f"Best rune score: {safe_int(summary.get('bestRuneScore', 0), 0)}",
+    ]
+
+    if active_profiles:
+        lines.append("")
+        lines.append("Profiles with runes:")
+        for profile in active_profiles:
+            lines.append(
+                f"• {profile['name']}: {profile['runeCount']} runes, "
+                f"{profile['rareRuneCount']} rare, best {profile['bestRuneScore']}"
+            )
+    else:
+        lines.append("")
+        lines.append("No linked profiles have found any runes yet.")
+
+    return lines
+
+def cmd_runes(api_key, profile_id):
+    result = fetch_runes_summary(api_key)
+
+    print_player_identity(api_key, profile_id)
+    print("BTG Runes")
+    print()
+
+    if result.get("unlinked"):
+        print("This bot is not linked to an owner account yet.")
+        return
+
+    if not result.get("ok"):
+        detail = result.get("error", "unknown error")
+        print(f"Could not load runes: {detail}.", file=sys.stderr)
+        sys.exit(1)
+
+    for line in build_runes_summary_lines(result.get("summary", {})):
+        print(line)
+
+def format_email_lookup_message(result):
+    if not isinstance(result, dict) or not result.get("ok"):
+        detail = result.get("error") if isinstance(result, dict) else "unknown error"
+        return f"Could not load contact email: {detail}."
+    email = normalize_bot_email(result.get("email"))
+    if email:
+        return f"Current contact email: {email}"
+    return "Current contact email: not set"
+
+def format_email_update_message(result, cleared=False, attempted_email=None):
+    if not isinstance(result, dict) or not result.get("ok"):
+        detail = result.get("error") if isinstance(result, dict) else "unknown error"
+        if cleared:
+            return f"Could not clear contact email: {detail}."
+        return f"Could not update contact email: {detail}."
+    email = normalize_bot_email(result.get("email"))
+    if cleared or not email:
+        return "Contact email cleared."
+    return f"Contact email set to: {email or attempted_email}"
 
 def print_player_identity(api_key, profile_id):
     identity = fetch_bot_identity(api_key, profile_id)
@@ -908,6 +3248,13 @@ def play_one_game(api_key, strategy_data):
         "finalScore": data.get("finalScore", 0),
         "streaks": data.get("streaksByStage", [0] * 7),
         "bonuses": data.get("bonusesEarned", {}),
+        "levelThemeRight": data.get("levelThemeRight"),
+        "runeFound": data.get("rune_found") is True,
+        "runeIsNew": data.get("rune_is_new") is True,
+        "runeId": data.get("rune_id"),
+        "runeSequenceDisplay": data.get("rune_sequence_display"),
+        "runeSequenceKey": data.get("rune_sequence_key"),
+        "runeTimesFound": data.get("rune_times_found"),
     }
 def fmt_bonuses(b):
     if not isinstance(b, dict):
@@ -917,47 +3264,163 @@ def fmt_bonuses(b):
         return "{}"
     return repr(nz)
 
-def cmd_help():
+def print_help_entry(command, description, indent=False):
+    prefix = " " if indent else ""
+    print(f"{prefix}{command}")
+    print(f"{prefix}{description}")
+
+
+def cmd_help_examples():
+    print("btg help examples")
+    print("Copy/paste BTG examples using the preferred syntax.")
+    print()
+    print("PLAY")
+    print_help_entry("/btg play", "Run a 10-game BTG round")
+    print_help_entry("/btg support", "Show BTG support information")
+    print()
+    print("HELP")
+    print_help_entry("/btg help", "Show this help summary")
+    print_help_entry("/btg help examples", "Show copy/paste BTG examples")
+    print()
+    print("SETUP")
+    print_help_entry("/btg setup", "Show the current BTG setup")
+    print_help_entry("/btg setup name MyBot_BTG", "Set the BTG display name")
+    print_help_entry("/btg setup email bot@example.com", "Set the contact email")
+    print_help_entry("/btg setup email clear", "Clear the contact email")
+    print_help_entry("/btg setup timezone Australia/Sydney", "Set the BTG timezone")
+    print_help_entry("/btg setup strategy cold-avoid", "Set the default strategy")
+    print_help_entry("/btg setup strategycontrol auto-daily", "Set the strategy control mode")
+    print_help_entry("/btg setup autopilot on", "Turn autopilot on")
+    print_help_entry("/btg setup cap 24", "Set the daily autoplay cap")
+    print_help_entry("/btg setup interval 61", "Set the autoplay interval")
+    print_help_entry("/btg setup autopilotnotify every 3", "Set autoplay notifications")
+    print()
+    print("RESULTS")
+    print_help_entry("/btg status", "Show the short BTG status")
+    print_help_entry("/btg stats", "Show the full BTG stats")
+    print_help_entry("/btg pickstats", "Show pick history statistics")
+    print_help_entry("/btg runes", "Show the rune summary")
+    print_help_entry("/btg boards bots", "Show the bot leaderboard")
+    print_help_entry("/btg boards both 2026-04-05", "Show both leaderboards for a date")
+    print()
+    print("STRATEGY")
+    print_help_entry("/btg review strategy", "Review the current strategy options")
+    print_help_entry("/btg strategy", "Show the active strategy")
+    print_help_entry("/btg strategy pick-due", "Change the strategy to pick-due")
+    print_help_entry("/btg strategy trial 5day", "Start the 5-day strategy trial")
+    print_help_entry("/btg strategy trial status", "Show the strategy trial status")
+    print_help_entry("/btg strategy trial stop", "Stop the strategy trial")
+    print_help_entry("/btg analysis", "Show the performance analysis")
+    print()
+    print("AUTOPILOT")
+    print_help_entry("/btg autopilot", "Show autopilot status")
+    print_help_entry("/btg autopilot enable 3", "Enable autopilot")
+    print_help_entry("/btg autopilot disable", "Disable autopilot")
+    print_help_entry("/btg autopilot interval 61", "Set the autoplay interval")
+    print_help_entry("/btg autopilot notify every 3", "Set autoplay notifications")
+    print_help_entry("/btg autopilot tick", "Run one autopilot scheduler check")
+    print()
+    print("REPORTS")
+    print_help_entry("/btg reports", "Show the report settings")
+    print_help_entry("/btg reports due", "List reports due right now")
+    print_help_entry("/btg reports strategy 19:50", "Schedule the strategy report")
+    print_help_entry("/btg reports strategy off", "Turn the strategy report off")
+    print_help_entry("/btg reports per round enable", "Enable per-round reports")
+    print()
+
+
+def cmd_help(args=None):
+    args = args or []
+    if args and args[0] == "examples":
+        cmd_help_examples()
+        return
+
     print("btg help")
-    print(" Show this help summary")
+    print("Short BTG command reference. Use /btg help examples for copy/paste examples.")
     print()
-    print("btg boards [both|humans|bots] [YYYY-MM-DD optional for daily]")
-    print(" Show leaderboards. With a date, shows the daily board for that date.")
+    print("PLAY")
+    print("Manual play and support.")
+    print_help_entry("/btg play", "Run a 10-game BTG round")
+    print_help_entry("/btg support", "Show BTG support information")
     print()
-    print("btg stats")
-    print(" Show full profile stats, including best score, win rate, streaks, and houses.")
+    print("HELP")
+    print("Help and examples.")
+    print_help_entry("/btg help", "Show this help summary")
+    print_help_entry("/btg help examples", "Show copy/paste BTG examples")
     print()
-    print("btg status")
-    print(" Show a shorter stats summary.")
+    print("SETUP")
+    print("Configure BTG identity and defaults.")
+    print_help_entry("/btg setup", "Show the current BTG setup")
+    print_help_entry("/btg setup name <display-name>", "Set the BTG display name")
+    print_help_entry("/btg setup email", "Show the contact email")
+    print_help_entry("/btg setup email <address>", "Set the contact email")
+    print_help_entry("/btg setup email clear", "Clear the contact email")
+    print_help_entry("/btg setup timezone <Area/City>", "Set the BTG timezone")
+    print_help_entry("/btg setup strategy <mode>", "Set the default strategy")
+    print_help_entry("/btg setup strategycontrol <mode>", "Set the strategy control mode")
+    print_help_entry("/btg setup autopilot on", "Turn autopilot on")
+    print_help_entry("/btg setup autopilot off", "Turn autopilot off")
+    print_help_entry("/btg setup cap <rounds-per-day>", "Set the daily autoplay cap")
+    print_help_entry("/btg setup interval <minutes>", "Set the autoplay interval")
+    print_help_entry("/btg setup autopilotnotify off", "Turn autoplay notifications off")
+    print_help_entry("/btg setup autopilotnotify every", "Send every autoplay notification")
+    print_help_entry("/btg setup autopilotnotify every <n>", "Send every nth autoplay notification")
     print()
-    print("btg pickstats")
-    print(" Show player picks, computer picks, and due-pick analysis used by strategies.")
+    print("RESULTS")
+    print("Read current stats, runes, and leaderboard output.")
+    print_help_entry("/btg status", "Show the short BTG status")
+    print_help_entry("/btg stats", "Show the full BTG stats")
+    print_help_entry("/btg pickstats", "Show pick history statistics")
+    print_help_entry("/btg runes", "Show the rune summary")
+    print_help_entry("/btg boards", "Show the default leaderboard view")
+    print_help_entry("/btg boards bots", "Show the bot leaderboard")
+    print_help_entry("/btg boards humans", "Show the human leaderboard")
+    print_help_entry("/btg boards both", "Show both leaderboards")
+    print_help_entry("/btg boards <YYYY-MM-DD>", "Show the default leaderboard view for a date")
     print()
-    print("btg strategy [random|hot-pick-player|hot-pick-computer|pick-due|cold-avoid]")
-    print(" Show or set the active play strategy.")
+    print("STRATEGY")
+    print("Review or change the active play strategy.")
+    print_help_entry("/btg review strategy", "Review the current strategy options")
+    print_help_entry("/btg strategy", "Show the active strategy")
+    print_help_entry("/btg strategy random", "Change the strategy to random")
+    print_help_entry("/btg strategy hot-pick-player", "Change the strategy to hot-pick-player")
+    print_help_entry("/btg strategy hot-pick-computer", "Change the strategy to hot-pick-computer")
+    print_help_entry("/btg strategy pick-due", "Change the strategy to pick-due")
+    print_help_entry("/btg strategy cold-avoid", "Change the strategy to cold-avoid")
+    print_help_entry("/btg strategy trial 5day", "Start the 5-day strategy trial")
+    print_help_entry("/btg strategy trial status", "Show the strategy trial status")
+    print_help_entry("/btg strategy trial stop", "Stop the strategy trial")
+    print_help_entry("/btg analysis", "Show the performance analysis")
     print()
-    print("btg play")
-    print(" Run the standard 10-game batch using the current strategy.")
+    print("AUTOPILOT")
+    print("Background play controls and checks.")
+    print_help_entry("/btg autopilot", "Show autopilot status")
+    print_help_entry("/btg autopilot enable", "Enable autopilot")
+    print_help_entry("/btg autopilot enable <rounds-per-day>", "Enable autopilot with a daily cap")
+    print_help_entry("/btg autopilot disable", "Disable autopilot")
+    print_help_entry("/btg autopilot interval <minutes>", "Set the autoplay interval")
+    print_help_entry("/btg autopilot cap <rounds-per-day>", "Set the daily autoplay cap")
+    print_help_entry("/btg autopilot notify off", "Turn autoplay notifications off")
+    print_help_entry("/btg autopilot notify every", "Send every autoplay notification")
+    print_help_entry("/btg autopilot notify every <n>", "Send every nth autoplay notification")
+    print_help_entry("/btg autopilot tick", "Run one autopilot scheduler check")
     print()
-    print("btg review daily")
-    print(" Show a short daily review using live rank if available and local batch history.")
+    print("REPORTS")
+    print("Schedule and manage BTG reports.")
+    print_help_entry("/btg reports", "Show the report settings")
+    print_help_entry("/btg reports due", "List reports due right now")
+    print_help_entry("/btg reports strategy <HH:MM>", "Schedule the strategy report")
+    print_help_entry("/btg reports strategy off", "Turn the strategy report off")
+    print_help_entry("/btg reports per round enable", "Enable per-round reports")
+    print_help_entry("/btg reports per round disable", "Disable per-round reports")
     print()
-    print("btg review strategy")
-    print(" Show a concise strategy review and suggest the next strategy to consider.")
-    print()
-    print("btg support")
-    print(" Show how humans can support BTG and keep bot play online.")
 
 def cmd_support():
     support_info = fetch_support_info()
     print(format_support_message(support_info))
 
-def cmd_review_daily(api_key, profile_id):
-    print_player_identity(api_key, profile_id)
-    print("BTG Review Daily")
-    print()
-    for line in build_daily_review_lines(api_key, profile_id):
-        print(line)
+def cmd_runes_summary(api_key, profile_id):
+    cmd_runes(api_key, profile_id)
 
 def cmd_review_strategy(api_key, profile_id):
     print_player_identity(api_key, profile_id)
@@ -965,6 +3428,118 @@ def cmd_review_strategy(api_key, profile_id):
     print()
     for line in build_strategy_review_lines(api_key, profile_id):
         print(line)
+
+
+def list_due_reports(now=None):
+    reports = load_reports_config()
+    runtime = load_report_runtime_state()
+    local_now = now or datetime.now(load_bot_tz())
+    local_date = local_now.date().isoformat()
+    current_time = local_now.strftime("%H:%M")
+    offset = reports.get("deliveryOffsetMinutes", 0)
+    due = []
+
+    for report_type in ["strategy"]:
+        report_cfg = reports.get(report_type, {})
+        if not report_cfg.get("enabled"):
+            continue
+        base_time = report_cfg.get("time")
+        if not is_valid_local_time_string(base_time):
+            continue
+        base_hour = int(base_time[:2])
+        base_minute = int(base_time[3:])
+        total_minutes = (base_hour * 60 + base_minute + offset) % (24 * 60)
+        effective_time = f"{total_minutes // 60:02d}:{total_minutes % 60:02d}"
+        if effective_time != current_time:
+            continue
+        report_state = runtime.get(report_type, {})
+        if isinstance(report_state, dict) and report_state.get("lastSentLocalDate") == local_date:
+            continue
+        due.append(report_type)
+
+    return due
+
+
+def cmd_reports(args):
+    action = "status" if not args else args[0]
+
+    if action in ["status", "show"]:
+        reports = load_reports_config()
+        runtime = load_report_runtime_state()
+        print("BTG Reports")
+        print()
+        print(describe_report_schedule("Strategy review", reports["strategy"]))
+        print(describe_per_round_report_setting(load_autopilot_config()))
+        print()
+        if action == "status":
+            for report_type in ["strategy"]:
+                report_state = runtime.get(report_type, {})
+                if isinstance(report_state, dict) and report_state.get("lastSentLocalDate"):
+                    print(f"{report_type.title()} review last sent local date: {report_state['lastSentLocalDate']}")
+                else:
+                    print(f"{report_type.title()} review last sent local date: never recorded")
+        return
+
+    if action == "due":
+        for report_type in list_due_reports():
+            print(report_type)
+        return
+
+    if len(args) >= 3 and action == "per" and args[1].strip().lower() == "round":
+        setting = args[2].strip().lower()
+        autopilot = load_autopilot_config()
+        if setting in ["enable", "on"]:
+            autopilot["notifyEveryNBatches"] = 1
+            save_autopilot_config(autopilot)
+            print("Per round report enabled.")
+            return
+        if setting in ["disable", "off"]:
+            autopilot["notifyEveryNBatches"] = 0
+            save_autopilot_config(autopilot)
+            print("Per round report disabled.")
+            return
+        print("Usage: btg reports per round <enable|disable>", file=sys.stderr)
+        sys.exit(1)
+
+    if len(args) >= 2 and action in ["per-round", "perround"]:
+        setting = args[1].strip().lower()
+        autopilot = load_autopilot_config()
+        if setting in ["enable", "on"]:
+            autopilot["notifyEveryNBatches"] = 1
+            save_autopilot_config(autopilot)
+            print("Per round report enabled.")
+            return
+        if setting in ["disable", "off"]:
+            autopilot["notifyEveryNBatches"] = 0
+            save_autopilot_config(autopilot)
+            print("Per round report disabled.")
+            return
+        print("Usage: btg reports per round <enable|disable>", file=sys.stderr)
+        sys.exit(1)
+
+    if action == "strategy":
+        if len(args) < 2:
+            print("Usage: btg reports strategy <HH:MM|off>", file=sys.stderr)
+            sys.exit(1)
+        reports = load_reports_config()
+        setting = args[1].strip()
+        if setting.lower() == "off":
+            reports["strategy"]["enabled"] = False
+            reports = save_reports_config(reports)
+            print("Strategy review schedule disabled.")
+            return
+        if not is_valid_local_time_string(setting):
+            print("Usage: btg reports strategy <HH:MM|off>", file=sys.stderr)
+            print("Example: btg reports strategy 09:10", file=sys.stderr)
+            sys.exit(1)
+        reports["strategy"]["enabled"] = True
+        reports["strategy"]["time"] = setting
+        reports = save_reports_config(reports)
+        print(f"Strategy review schedule set to {reports['strategy']['time']} local time.")
+        return
+
+    print("Usage: btg reports [show|strategy <HH:MM|off>|per round <enable|disable>|status|due]", file=sys.stderr)
+    sys.exit(1)
 
 def cmd_boards(api_key, profile_id, type_arg, date_str, limit):
     type_arg = "bots"
@@ -1068,12 +3643,15 @@ def find_leaderboard_entry(entries, profile_id):
 def score_or_zero(value):
     return value if isinstance(value, (int, float)) else 0
 
-def cmd_play(api_key, profile_id):
+def cmd_play(api_key, profile_id, trigger_source="manual"):
     n = 10
     results = []
     lines = []
     best = 0
     games_completed = 0
+    newly_won_level_theme_right = None
+    newly_discovered_runes = []
+    best_result = None
 
     pre_play_stats = fetch_player_stats(api_key, profile_id)
     profile_best_score = pre_play_stats.get("scoreboard", {}).get("bestScore", 0)
@@ -1101,12 +3679,12 @@ def cmd_play(api_key, profile_id):
             if appendix:
                 print()
                 print(appendix)
-            return
+            return {"played": False, "reason": "bot_rate_limit"}
 
         if "error" in r and r["error"] == "unauthorized":
             print("BTG error: saved bot credentials were rejected. Do not re-register unless you intend to create a new bot identity.", file=sys.stderr)
             print(f"BTG state dir: {STATE_DIR}", file=sys.stderr)
-            return
+            return {"played": False, "reason": "unauthorized"}
 
         if "error" in r:
             lines.append(f"{i+1}/{n} score=0 streaks=[0,0,0,0,0,0,0] bonuses={{}}")
@@ -1117,9 +3695,24 @@ def cmd_play(api_key, profile_id):
         bn = fmt_bonuses(r["bonuses"])
         if sc > best:
             best = sc
+            best_result = r
         lines.append(f"{i+1}/{n} score={sc} streaks={st} bonuses={bn}")
         results.append(r)
         games_completed = i + 1
+
+        candidate_level_theme_right = extract_level_theme_right({"levelThemeRight": r.get("levelThemeRight")})
+        if r.get("runeIsNew") is True:
+            newly_discovered_runes.append({
+                "score": sc,
+                "levelThemeRight": r.get("levelThemeRight"),
+                "runeId": r.get("runeId"),
+                "runeSequenceDisplay": r.get("runeSequenceDisplay"),
+                "runeSequenceKey": r.get("runeSequenceKey"),
+                "runeTimesFound": r.get("runeTimesFound"),
+            })
+        if candidate_level_theme_right:
+            if newly_won_level_theme_right is None:
+                newly_won_level_theme_right = candidate_level_theme_right
 
         if sc > post_daily_best_from_response:
             post_daily_best_from_response = sc
@@ -1147,9 +3740,15 @@ def cmd_play(api_key, profile_id):
     print(f"Best stage streaks: BW={streaks.get('blackWhite', 0)}, Vehicles={streaks.get('vehicles', 0)}, Suit={streaks.get('suit', 0)}, Hands={streaks.get('hands', 0)}, Dice={streaks.get('dice', 0)}, Shapes={streaks.get('shapes', 0)}, Colour={streaks.get('colour', 0)}")
     print(f"Houses: Full={houses.get('fullHouse', 0)}, Six={houses.get('sixHouse', 0)}, Five={houses.get('fiveHouse', 0)}, Half={houses.get('halfHouse', 0)}, High={houses.get('highHouse', 0)}, Low={houses.get('lowHouse', 0)}, SixSeven={houses.get('sixSeven', 0)}")
     print(f"Current strategy: {load_strategy()}")
+    post_play_level_theme_right = extract_level_theme_right(post_play_stats)
+    level_theme_right_status_lines = format_level_theme_right_status_lines(post_play_level_theme_right)
+    if level_theme_right_status_lines:
+        print()
+        for line in level_theme_right_status_lines:
+            print(line)
     print()
     print(f"Games: {n}")
-    print(f"Top score this batch: {best}")
+    print(f"Top score this round: {best}")
 
     d_date_post, d_list_post = fetch_daily("bots", 10)
     a_list_post = fetch_alltime("bots", 10)
@@ -1209,20 +3808,51 @@ def cmd_play(api_key, profile_id):
         else:
             print("All-time bot leaderboard impact: No change")
 
+    discovered_rune_lines = format_discovered_rune_lines(newly_discovered_runes)
+    if discovered_rune_lines:
+        print()
+        if len(discovered_rune_lines) == 1:
+            print("Congratulations - you discovered a rune!")
+        else:
+            print("Congratulations - you discovered runes!")
+        for line in discovered_rune_lines:
+            print(line)
+    elif newly_won_level_theme_right:
+        print()
+        for line in format_new_level_theme_right_lines(newly_won_level_theme_right):
+            print(line)
+
     for l in lines:
         print(l)
 
-    save_last_play_at(datetime.now(load_bot_tz()))
+    completed_at = datetime.now(load_bot_tz())
+    save_last_play_at(completed_at)
+    current_strategy = load_strategy()
+    game_scores = [safe_int(r.get("finalScore", 0)) for r in results]
     average_score = int(sum(safe_int(r.get("finalScore", 0)) for r in results) / len(results)) if results else 0
     append_batch_history({
-        "completedAt": datetime.now(load_bot_tz()).isoformat(),
-        "localDate": datetime.now(load_bot_tz()).date().isoformat(),
-        "strategy": load_strategy(),
+        "completedAt": completed_at.isoformat(),
+        "localDate": completed_at.date().isoformat(),
+        "strategy": current_strategy,
+        "triggerSource": trigger_source,
         "gamesCompleted": games_completed,
         "topScore": best,
-        "averageScore": average_score
+        "averageScore": average_score,
+        "gameScores": game_scores,
     })
-    log_event(f"batch complete: games={games_completed}/{n} top_score={best} strategy={load_strategy()}")
+    record_strategy_round(current_strategy, game_scores)
+    record_strategy_trial_round(current_strategy, game_scores, completed_at=completed_at)
+    log_event(f"round complete: games={games_completed}/{n} top_score={best} strategy={current_strategy}")
+    return {
+        "played": True,
+        "gamesCompleted": games_completed,
+        "topScore": best,
+        "averageScore": average_score,
+        "strategy": current_strategy,
+        "topScoreSuccessBreakdown": format_success_breakdown_for_result(best_result),
+        "newRuneDiscoveries": newly_discovered_runes,
+        "triggerSource": trigger_source,
+    }
 
 def analyze_player_stats(api_key, profile_id):
     stats = fetch_player_stats(api_key, profile_id)
@@ -1262,9 +3892,20 @@ def cmd_pickstats(api_key, profile_id):
     my_picks = stats.get("myPicks", {})
     comp_picks = stats.get("computerPicks", {})
 
+    def format_stage_name(stage):
+        return (
+            stage.replace("BlackWhite", "Black/White")
+            .replace("Vehicles", "Vehicles")
+            .replace("Suit", "Suit")
+            .replace("Hands", "Hands")
+            .replace("Dice", "Dice")
+            .replace("Shapes", "Shapes")
+            .replace("Colour", "Colour")
+        )
+
     print_player_identity(api_key, profile_id)
     print("Pick stats:")
-    print("Player hot picks:")
+    print("Player hot picks (highest historical win rate):")
     for stage, options in my_picks.items():
         if not options:
             print(f"- {stage}: no data")
@@ -1281,47 +3922,58 @@ def cmd_pickstats(api_key, profile_id):
             w = options[best_opt].get("wins", 0)
             avg_val = options[best_opt].get("avg", 0)
             display_opt = best_opt.upper()
-            print(f"- {stage.replace('BlackWhite','Black/White').replace('Vehicles','Vehicles').replace('Suit','Suit').replace('Hands','Hands').replace('Dice','Dice').replace('Shapes','Shapes').replace('Colour','Colour')}: {display_opt} avg={avg_val:.1f} picks={p} wins={w}")
+            print(f"- {format_stage_name(stage)}: {display_opt} winrate={avg_val:.1f}% picks={p} wins={w}")
 
-    print("Computer hot picks:")
+    print("Computer hot picks (highest computer pick count):")
     for stage, options in comp_picks.items():
         if not options:
             print(f"- {stage}: no data")
             continue
-        max_picks = -1
-        best_opt = None
-        for opt, data in options.items():
-            picks = data.get("picks", 0)
-            if picks > max_picks:
-                max_picks = picks
-                best_opt = opt
-        if best_opt:
-            p = options[best_opt].get("picks", 0)
-            display_opt = best_opt.upper()
-            print(f"- {stage.replace('BlackWhite','Black/White').replace('Vehicles','Vehicles').replace('Suit','Suit').replace('Hands','Hands').replace('Dice','Dice').replace('Shapes','Shapes').replace('Colour','Colour')}: {display_opt} picks={p}")
+        ranked = sorted(
+            [
+                (opt, safe_int(data.get("picks", 0)))
+                for opt, data in options.items()
+                if isinstance(data, dict)
+            ],
+            key=lambda item: item[1],
+            reverse=True,
+        )
+        if ranked:
+            best_opt, best_picks = ranked[0]
+            second_picks = ranked[1][1] if len(ranked) > 1 else 0
+            total_picks = sum(picks for _, picks in ranked if picks > 0)
+            stage_pct = (best_picks / total_picks * 100.0) if total_picks > 0 else 0.0
+            gap_text = f", +{best_picks - second_picks} vs {ranked[1][0].upper()}" if len(ranked) > 1 else ""
+            print(f"- {format_stage_name(stage)}: {best_opt.upper()} picks={best_picks} ({stage_pct:.1f}%{gap_text})")
 
-    print("Computer due picks:")
+    print("Computer due picks (lowest positive computer pick count):")
     for stage, options in comp_picks.items():
         if not options:
             print(f"- {stage}: no data")
             continue
-        min_picks = float('inf')
-        best_opt = None
-        for opt, data in options.items():
-            picks = data.get("picks", 0)
-            if picks > 0 and picks < min_picks:
-                min_picks = picks
-                best_opt = opt
-        if best_opt:
-            p = options[best_opt].get("picks", 0)
-            display_opt = best_opt.upper()
-            print(f"- {stage.replace('BlackWhite','Black/White').replace('Vehicles','Vehicles').replace('Suit','Suit').replace('Hands','Hands').replace('Dice','Dice').replace('Shapes','Shapes').replace('Colour','Colour')}: {display_opt} picks={p}")
+        ranked = sorted(
+            [
+                (opt, safe_int(data.get("picks", 0)))
+                for opt, data in options.items()
+                if isinstance(data, dict)
+            ],
+            key=lambda item: item[1],
+        )
+        positive_ranked = [(opt, picks) for opt, picks in ranked if picks > 0]
+        hottest_picks = max((picks for _, picks in ranked), default=0)
+        if positive_ranked:
+            due_opt, due_picks = positive_ranked[0]
+            total_picks = sum(picks for _, picks in ranked if picks > 0)
+            stage_pct = (due_picks / total_picks * 100.0) if total_picks > 0 else 0.0
+            gap_text = f", {hottest_picks - due_picks} behind hottest" if hottest_picks > due_picks else ""
+            print(f"- {format_stage_name(stage)}: {due_opt.upper()} picks={due_picks} ({stage_pct:.1f}%{gap_text})")
 
 def cmd_status(api_key, profile_id):
     stats = fetch_player_stats(api_key, profile_id)
     sb = stats.get("scoreboard", {})
     streaks = stats.get("streaks", {}).get("byStage", {})
     houses = stats.get("houses", {})
+    level_theme_right = extract_level_theme_right(stats)
 
     print_player_identity(api_key, profile_id)
     print(f"Best score: {sb.get('bestScore', 0)}")
@@ -1331,6 +3983,13 @@ def cmd_status(api_key, profile_id):
     print(f"Total wins: {sb.get('totalWins', 0)}")
     print(f"Best stage streaks: BW={streaks.get('blackWhite', 0)}, Vehicles={streaks.get('vehicles', 0)}, Suit={streaks.get('suit', 0)}, Hands={streaks.get('hands', 0)}, Dice={streaks.get('dice', 0)}, Shapes={streaks.get('shapes', 0)}, Colour={streaks.get('colour', 0)}")
     print(f"Houses: Full={houses.get('fullHouse', 0)}, Six={houses.get('sixHouse', 0)}, Five={houses.get('fiveHouse', 0)}, Half={houses.get('halfHouse', 0)}, High={houses.get('highHouse', 0)}, Low={houses.get('lowHouse', 0)}, SixSeven={houses.get('sixSeven', 0)}")
+    status_lines = format_level_theme_right_status_lines(level_theme_right)
+    if status_lines:
+        print()
+        for line in status_lines:
+            print(line)
+    print()
+    print_game_awareness()
 
 def cmd_stats(api_key, profile_id):
     stats = fetch_player_stats(api_key, profile_id)
@@ -1347,6 +4006,8 @@ def cmd_stats(api_key, profile_id):
     print(f"Total wins: {sb.get('totalWins', 0)}")
     print(f"Best stage streaks: BW={streaks.get('blackWhite', 0)}, Vehicles={streaks.get('vehicles', 0)}, Suit={streaks.get('suit', 0)}, Hands={streaks.get('hands', 0)}, Dice={streaks.get('dice', 0)}, Shapes={streaks.get('shapes', 0)}, Colour={streaks.get('colour', 0)}")
     print(f"Houses: Full={houses.get('fullHouse', 0)}, Six={houses.get('sixHouse', 0)}, Five={houses.get('fiveHouse', 0)}, Half={houses.get('halfHouse', 0)}, High={houses.get('highHouse', 0)}, Low={houses.get('lowHouse', 0)}, SixSeven={houses.get('sixSeven', 0)}")
+    print()
+    print_game_awareness()
 
 def main():
     migrate_legacy_state()
@@ -1360,17 +4021,25 @@ def main():
 
     requires_identity = True
 
-    if cmd == "help":
+    if cmd in ["help", "setup", "support", "reports"]:
+        requires_identity = False
+    elif cmd == "strategy" and args and args[0] == "trial":
         requires_identity = False
     elif cmd == "btg":
         if len(args) == 0:
             cmd_help()
             sys.exit(0)
         subcmd = args[0]
-        if subcmd == "help":
+        if subcmd in ["help", "setup", "support", "reports"]:
+            requires_identity = False
+        elif subcmd == "strategy" and len(args) >= 2 and args[1] == "trial":
             requires_identity = False
 
     if requires_identity:
+        if not has_display_name_configured():
+            print("BTG setup required before this command.", file=sys.stderr)
+            print("Run: btg setup", file=sys.stderr)
+            sys.exit(1)
         if not os.path.exists(API_KEY_FILE) or not os.path.exists(PROFILE_ID_FILE):
             log_event("identity missing: attempting first-run registration")
             api_key, profile_id = register_bot()
@@ -1381,6 +4050,16 @@ def main():
         api_key = None
         profile_id = None
 
+    should_manage_trial = cmd not in ["help", "setup", "support"]
+    if cmd == "strategy" and args and args[0] == "trial":
+        should_manage_trial = False
+    if cmd == "btg" and args:
+        should_manage_trial = args[0] not in ["help", "setup", "support"]
+        if args[0] == "strategy" and len(args) >= 2 and args[1] == "trial":
+            should_manage_trial = False
+    if should_manage_trial:
+        maybe_advance_strategy_trial()
+
     if cmd == "btg":
         if len(args) == 0:
             cmd_help()
@@ -1390,7 +4069,9 @@ def main():
         subargs = args[1:]
 
         if subcmd == "help":
-            cmd_help()
+            cmd_help(subargs)
+        elif subcmd == "setup":
+            cmd_setup(subargs)
         elif subcmd == "boards":
             type_arg = "bots"
             date_str = None
@@ -1405,18 +4086,20 @@ def main():
             cmd_boards(api_key, profile_id, type_arg, date_str, limit)
         elif subcmd == "play":
             cmd_play(api_key, profile_id)
+        elif subcmd == "autopilot":
+            cmd_autopilot(api_key, profile_id, subargs)
         elif subcmd == "review":
             if not subargs:
-                print("Usage: btg review [daily|strategy]", file=sys.stderr)
+                print("Usage: btg review strategy", file=sys.stderr)
                 sys.exit(1)
             review_type = subargs[0]
-            if review_type == "daily":
-                cmd_review_daily(api_key, profile_id)
-            elif review_type == "strategy":
+            if review_type == "strategy":
                 cmd_review_strategy(api_key, profile_id)
             else:
-                print("Usage: btg review [daily|strategy]", file=sys.stderr)
+                print("Usage: btg review strategy", file=sys.stderr)
                 sys.exit(1)
+        elif subcmd == "reports":
+            cmd_reports(subargs)
         elif subcmd == "support":
             cmd_support()
         elif subcmd == "analysis":
@@ -1426,30 +4109,24 @@ def main():
             save_personality(mode)
             print(f"Personality set to: {mode}")
         elif subcmd == "strategy":
-            if len(subargs) == 0:
-                current = load_strategy()
-                print(f"Current strategy: {current}")
-            else:
-                mode = subargs[0]
-                if mode not in ["random", "hot-pick-player", "hot-pick-computer", "pick-due", "cold-avoid"]:
-                    print("Invalid strategy. Options: random, hot-pick-player, hot-pick-computer, pick-due, cold-avoid", file=sys.stderr)
-                    sys.exit(1)
-                save_strategy(mode)
-                print(f"Strategy set: {mode}")
-                return
+            cmd_strategy(subargs)
         elif subcmd == "status":
             cmd_status(api_key, profile_id)
         elif subcmd == "stats":
             cmd_stats(api_key, profile_id)
         elif subcmd == "pickstats":
             cmd_pickstats(api_key, profile_id)
+        elif subcmd == "runes":
+            cmd_runes_summary(api_key, profile_id)
         else:
             log_event(f"command failed: unknown btg command args={subargs}")
             print("Unknown btg command", file=sys.stderr)
             sys.exit(1)
 
     elif cmd == "help":
-        cmd_help()
+        cmd_help(args)
+    elif cmd == "setup":
+        cmd_setup(args)
     elif cmd == "boards":
         type_arg = "bots"
         date_str = None
@@ -1464,18 +4141,20 @@ def main():
         cmd_boards(api_key, profile_id, type_arg, date_str, limit)
     elif cmd == "play":
         cmd_play(api_key, profile_id)
+    elif cmd == "autopilot":
+        cmd_autopilot(api_key, profile_id, args)
     elif cmd == "review":
         if len(args) == 0:
-            print("Usage: btg review [daily|strategy]", file=sys.stderr)
+            print("Usage: btg review strategy", file=sys.stderr)
             sys.exit(1)
         review_type = args[0]
-        if review_type == "daily":
-            cmd_review_daily(api_key, profile_id)
-        elif review_type == "strategy":
+        if review_type == "strategy":
             cmd_review_strategy(api_key, profile_id)
         else:
-            print("Usage: btg review [daily|strategy]", file=sys.stderr)
+            print("Usage: btg review strategy", file=sys.stderr)
             sys.exit(1)
+    elif cmd == "reports":
+        cmd_reports(args)
     elif cmd == "support":
         cmd_support()
     elif cmd == "analysis":
@@ -1485,23 +4164,15 @@ def main():
         save_personality(mode)
         print(f"Personality set to: {mode}")
     elif cmd == "strategy":
-        if len(args) == 0:
-            current = load_strategy()
-            print(f"Current strategy: {current}")
-        else:
-            mode = args[0]
-            if mode not in ["random", "hot-pick-player", "hot-pick-computer", "pick-due", "cold-avoid"]:
-                print("Invalid strategy. Options: random, hot-pick-player, hot-pick-computer, pick-due, cold-avoid", file=sys.stderr)
-                sys.exit(1)
-            save_strategy(mode)
-            print(f"Strategy set: {mode}")
-            return
+        cmd_strategy(args)
     elif cmd == "status":
         cmd_status(api_key, profile_id)
     elif cmd == "stats":
         cmd_stats(api_key, profile_id)
     elif cmd == "pickstats":
         cmd_pickstats(api_key, profile_id)
+    elif cmd == "runes":
+        cmd_runes_summary(api_key, profile_id)
     else:
         log_event(f"command failed: unknown command cmd={cmd} args={args}")
         print("Unknown command", file=sys.stderr)

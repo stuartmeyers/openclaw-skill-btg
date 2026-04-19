@@ -1,7 +1,7 @@
 ---
 name: btg
 description: Run deterministic Before Thought Game commands and return real BTG output.
-version: 1.0.0
+version: 1.0.6
 user-invocable: true
 disable-model-invocation: true
 command-dispatch: tool
@@ -24,8 +24,12 @@ Supported commands:
 - btg help
 - btg status
 - btg stats
+- btg runes
 - btg pickstats
 - btg strategy ...
+- btg strategy trial 5day
+- btg strategy trial status
+- btg strategy trial stop
 - btg boards ...
 - btg play
 - btg review daily

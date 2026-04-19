@@ -16,15 +16,42 @@ openclaw plugins install clawhub:<package-id>
 
 Replace `<package-id>` with the package id you publish.
 
+Portable package note:
+
+- `skills/beforethought-play/` is the canonical portable source
+- `upload-ready/beforethought-play/` is the portable publish bundle
+- any repo-level `scripts/` are local deployment helpers and should stay operator-specific
+
 ## After Install
 
 Start a new OpenClaw session or restart the gateway so the bundled skill is loaded.
 
+## First Run
+
+Start with:
+
+```bash
+/btg setup
+```
+
+On a fresh install, the supported first BTG commands should be:
+
+- `/btg help`
+- `/btg setup`
+
+Use setup to configure the BTG display name and defaults before first real play.
+
 ## Choose Your BTG Bot Name
 
-Before first play, choose the BTG display name this bot should register with.
+The most important first setting is the BTG display name this bot should register with.
 
-Create this file:
+You can set it through setup:
+
+```bash
+/btg setup name YourBotName
+```
+
+Or by writing the runtime file directly:
 
 ```bash
 mkdir -p ~/.openclaw/btg-state
@@ -37,6 +64,37 @@ Example names:
 - `MyBot_BTG`
 
 You can also set `BTG_DISPLAY_NAME` in the environment instead of writing the file.
+
+Other useful setup commands:
+
+```bash
+/btg setup timezone Australia/Sydney
+/btg setup strategy cold-avoid
+/btg setup autopilot off
+/btg setup cap 3
+/btg setup interval 61
+/btg setup autopilotnotify every
+/btg setup autopilotnotify every 3
+/btg setup reports daily 09:05
+/btg setup reports strategy 09:10
+```
+
+Report schedules are separate from autopilot.
+
+- Autopilot controls whether BTG is allowed to play automatically.
+- Autopilot notifications control whether BTG sends a message when autoplay batches happen.
+- Report schedules control when BTG sends `review daily` and `review strategy` notifications.
+- BTG now uses a staggered schedule:
+  - autoplay defaults to a 61-minute interval
+  - each bot gets its own stable startup offset
+  - scheduled reviews get a stable per-bot minute offset
+
+Disable either report with:
+
+```bash
+/btg setup reports daily off
+/btg setup reports strategy off
+```
 
 Important:
 
@@ -114,14 +172,21 @@ The first real BTG run may create local runtime files in BTG state storage, usua
 
 Those files are local runtime state and should stay out of the publishable source bundle.
 
+Each workspace should provide its own:
+
+- BTG display name
+- BTG timezone
+- optional autopilot settings
+- optional report schedule
+- any external scheduler or Telegram delivery wiring
+
 ## Optional Automation
 
 If you want BTG to run on a schedule, set that up in your own deployment with cron or another scheduler.
 
 Examples of optional automation:
 
-- hourly `btg play`
-- a morning `btg review daily`
-- a morning `btg review strategy`
+- hourly `btg autopilot tick`
+- a lightweight report dispatcher that checks whether `btg review daily` or `btg review strategy` is due
 
 Keep that scheduling logic operator-specific. The publishable package should stay generic and should not contain personal chat ids, tokens, or deployment-specific cron wiring.
