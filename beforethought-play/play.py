@@ -61,8 +61,8 @@ RUNE_STAGE_EMOJI = [
     {"hearts": "❤️", "diamonds": "♦️", "clubs": "♣️", "spades": "♠️"},
     {"thumbs_up": "👍", "thumbs_down": "👎", "peace": "✌️", "fist": "✊", "open_hand": "✋"},
     {"1": "⚀", "2": "⚁", "3": "⚂", "4": "⚃", "5": "⚄", "6": "⚅"},
-    {"square": "⬛", "triangle": "▲", "circle": "⚫", "star": "★", "diamond": "◆", "hexagon": "⬢", "plus": "✚", "cross": "✖️"},
-    {"red": "❤️", "orange": "🧡", "yellow": "💛", "green": "💚", "blue": "💙", "purple": "💜", "black": "🖤", "white": "🤍", "brown": "🤎", "pink": "🩷"},
+    {"square": "⬛", "triangle": "▲", "circle": "•", "star": "★", "diamond": "◆", "hexagon": "⬢", "plus": "✚", "cross": "✖️"},
+    {"light_blue": "🩵", "orange": "🧡", "yellow": "💛", "green": "💚", "blue": "💙", "purple": "💜", "black": "🖤", "white": "🤍", "brown": "🤎", "pink": "🩷"},
 ]
 RUNE_SEQUENCE_STAGE_KEYS = [
     ["blackWhite", "black_white", "bw", "level1"],
@@ -114,13 +114,13 @@ RUNE_DISPLAY_TOKEN_EMOJI = {
     "6": "⚅",
     "square": "⬛",
     "triangle": "▲",
-    "circle": "⚫",
+    "circle": "•",
     "star": "★",
     "diamond": "◆",
     "hexagon": "⬢",
     "plus": "✚",
     "cross": "✖️",
-    "red": "❤️",
+    "light_blue": "🩵",
     "orange": "🧡",
     "yellow": "💛",
     "green": "💚",
@@ -136,7 +136,7 @@ RUNE_KEY_STAGE_VALUE_MAP = {
     "4": ["thumbs_up", "thumbs_down", "peace", "fist", "open_hand"],
     "5": ["1", "2", "3", "4", "5", "6"],
     "6": ["square", "triangle", "circle", "star", "diamond", "hexagon", "plus", "cross"],
-    "7": ["red", "orange", "yellow", "green", "blue", "purple", "black", "white", "brown", "pink"],
+    "7": ["light_blue", "orange", "yellow", "green", "blue", "purple", "black", "white", "brown", "pink"],
 }
 
 def ensure_state_dirs():
@@ -2067,10 +2067,53 @@ def normalize_rune_token(value):
         "clubs": "clubs",
         "spades": "spades",
         "hearts": "hearts",
+        "lightblue": "light_blue",
+        "red": "light_blue",
         "colour": "colour",
         "color": "color",
     }
     return alias_map.get(text, text)
+
+
+def normalize_option_key(value):
+    if isinstance(value, str):
+        text = value.strip().lower()
+    elif value is None:
+        return ""
+    else:
+        text = str(value).strip().lower()
+
+    if not text:
+        return ""
+
+    text = text.replace("-", "_").replace(" ", "_")
+    alias_map = {
+        "lightblue": "light_blue",
+        "red": "light_blue",
+    }
+    return alias_map.get(text, text)
+
+
+def option_key_for_choice(option):
+    if not isinstance(option, dict):
+        return ""
+    return normalize_option_key(option.get("key") or option.get("label", ""))
+
+
+def aggregate_computer_pick_options(options):
+    aggregated = {}
+    if not isinstance(options, dict):
+        return aggregated
+
+    for opt, data in options.items():
+        if not isinstance(data, dict):
+            continue
+        normalized_opt = normalize_option_key(opt)
+        if not normalized_opt:
+            continue
+        entry = aggregated.setdefault(normalized_opt, {"picks": 0})
+        entry["picks"] += safe_int(data.get("picks", 0), 0)
+    return aggregated
 
 def split_rune_sequence_text(value):
     if not isinstance(value, str):
@@ -3271,11 +3314,11 @@ def play_one_game(api_key, strategy_data):
         elif strategy == "hot-pick-computer":
             comp_picks = strategy_data["computerPicks"]
             stage_key = stage.get("stageName", stage.get("type", stage.get("stage", "")))
-            comp_data = comp_picks.get(stage_key, {})
+            comp_data = aggregate_computer_pick_options(comp_picks.get(stage_key, {}))
 
             option_list = []
             for opt in stage["options"]:
-                opt_key = opt.get("key", opt.get("label", "").lower())
+                opt_key = option_key_for_choice(opt)
                 picks = comp_data.get(opt_key, {}).get("picks", 0)
                 option_list.append({"option": opt, "picks": picks})
 
@@ -3290,7 +3333,25 @@ def play_one_game(api_key, strategy_data):
         elif strategy == "pick-due":
             recency = strategy_data["computerPickRecency"]
             stage_key = stage.get("stageName", stage.get("type", stage.get("stage", "")))
-            recency_data = recency.get(stage_key, {})
+            raw_recency_data = recency.get(stage_key, {})
+            recency_data = {}
+            if isinstance(raw_recency_data, dict):
+                for opt_key, opt_recency in raw_recency_data.items():
+                    normalized_opt = normalize_option_key(opt_key)
+                    if not normalized_opt or not isinstance(opt_recency, dict):
+                        continue
+                    current = recency_data.get(normalized_opt)
+                    if current is None:
+                        recency_data[normalized_opt] = dict(opt_recency)
+                        continue
+                    current_seen = safe_int(current.get("playsSinceSeen", 0), 0)
+                    candidate_seen = safe_int(opt_recency.get("playsSinceSeen", 0), 0)
+                    if opt_recency.get("lastSeenAt") is None:
+                        recency_data[normalized_opt] = dict(opt_recency)
+                    elif current.get("lastSeenAt") is None:
+                        continue
+                    elif candidate_seen > current_seen:
+                        recency_data[normalized_opt] = dict(opt_recency)
 
             if not recency_data:
                 chosen = random.choice(stage["options"])
@@ -3298,7 +3359,7 @@ def play_one_game(api_key, strategy_data):
                 best_recency = -1
                 best_option = None
                 for opt in stage["options"]:
-                    opt_key = opt.get("key", opt.get("label", "").lower())
+                    opt_key = option_key_for_choice(opt)
                     opt_recency = recency_data.get(opt_key, {})
                     plays_since_seen = opt_recency.get("playsSinceSeen", 0)
                     if opt_recency.get("lastSeenAt") is None:
@@ -3313,18 +3374,18 @@ def play_one_game(api_key, strategy_data):
         elif strategy == "cold-avoid":
             comp_picks = strategy_data["computerPicks"]
             stage_key = stage.get("stageName", stage.get("type", stage.get("stage", "")))
-            comp_data = comp_picks.get(stage_key, {})
+            comp_data = aggregate_computer_pick_options(comp_picks.get(stage_key, {}))
 
             if not comp_data:
                 chosen = random.choice(stage["options"])
             else:
                 max_picks = max(
-                    comp_data.get(opt.get("key", opt.get("label", "").lower()), {}).get("picks", 0)
+                    comp_data.get(option_key_for_choice(opt), {}).get("picks", 0)
                     for opt in stage["options"]
                 )
                 hottest_opts = [
                     opt for opt in stage["options"]
-                    if comp_data.get(opt.get("key", opt.get("label", "").lower()), {}).get("picks", 0) == max_picks
+                    if comp_data.get(option_key_for_choice(opt), {}).get("picks", 0) == max_picks
                 ]
                 candidates = [opt for opt in stage["options"] if opt not in hottest_opts]
                 chosen = random.choice(candidates) if candidates else random.choice(stage["options"])
@@ -4047,10 +4108,11 @@ def cmd_pickstats(api_key, profile_id):
         if not options:
             print(f"- {stage}: no data")
             continue
+        aggregated_options = aggregate_computer_pick_options(options)
         ranked = sorted(
             [
                 (opt, safe_int(data.get("picks", 0)))
-                for opt, data in options.items()
+                for opt, data in aggregated_options.items()
                 if isinstance(data, dict)
             ],
             key=lambda item: item[1],
@@ -4069,10 +4131,11 @@ def cmd_pickstats(api_key, profile_id):
         if not options:
             print(f"- {stage}: no data")
             continue
+        aggregated_options = aggregate_computer_pick_options(options)
         ranked = sorted(
             [
                 (opt, safe_int(data.get("picks", 0)))
-                for opt, data in options.items()
+                for opt, data in aggregated_options.items()
                 if isinstance(data, dict)
             ],
             key=lambda item: item[1],

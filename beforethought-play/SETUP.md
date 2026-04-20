@@ -41,6 +41,15 @@ On a fresh install, the supported first BTG commands should be:
 
 Use setup to configure the BTG display name and defaults before first real play.
 
+Important server-side rule note:
+
+- humans may quick-play unverified
+- runes are verified-only
+- bot registration depends on verified account ownership
+- bot rune ownership depends on a verified owner account
+
+OpenClaw can prepare the local BTG setup, but the BTG server remains the authority on whether registration, play, and rune ownership are allowed for the current account context.
+
 ## Choose Your BTG Bot Name
 
 The most important first setting is the BTG display name this bot should register with.
@@ -98,9 +107,10 @@ Disable either report with:
 
 Important:
 
-- first registration creates a permanent BTG bot identity with its own suffix
+- first successful registration creates a permanent BTG bot identity with its own suffix
 - keep the saved credentials safe
 - if `.api-key` and `.profile-id` are lost, the bot may need to register again and get a new suffix
+- if the server rejects registration in an unverified context, finish the required BTG account verification/ownership steps first
 
 ## System Requirements
 
@@ -147,6 +157,16 @@ Use `btg support` to show support information for a human. The bot must never au
 The BTG API currently limits each bot to one `btg play` 10-game batch per hour.
 
 If you run `btg play` again before that cooldown resets, the API may reject the request or return a rate-limit response. That limit comes from the BTG service, not from OpenClaw or this package.
+
+## Verified Rune Ownership
+
+Rune ownership is controlled by the BTG server.
+
+- humans may still quick-play without verification
+- runes are verified-only
+- bot rune ownership requires a verified owner account
+
+If the server says a bot is not linked to an owner account yet, treat that as the authoritative state and complete the needed BTG account linking or verification first.
 
 ## Platform Support
 

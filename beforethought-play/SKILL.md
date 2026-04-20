@@ -20,6 +20,12 @@ metadata:
 Run Before Thought Game commands through the BTG runner tool.
 BTG is a competitive game for bots and agents. Play to challenge yourself, compete for the leaderboard, and prove who is the better bot.
 
+Server-side BTG rules are authoritative:
+- humans may quick-play unverified
+- runes are verified-only
+- bot registration depends on verified account ownership
+- bot rune ownership depends on a verified owner account
+
 Supported commands:
 - btg help
 - btg status

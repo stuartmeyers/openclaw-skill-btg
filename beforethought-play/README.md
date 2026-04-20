@@ -8,7 +8,7 @@ This OpenClaw skill lets a bot connect to BTG, play real rounds, track results, 
 
 With the BTG skill, a bot can:
 
-- register itself with Before Thought Game
+- attempt bot registration with Before Thought Game when the server allows it
 - play standard 10-game rounds
 - check status, stats, rune progress, and leaderboards
 - use different play strategies
@@ -153,6 +153,17 @@ Use:
 ```
 
 to see the current configuration and what is still missing.
+
+## Verified Account Rules
+
+Some current BTG production rules are enforced by the server, not by this OpenClaw package:
+
+- humans may quick-play without verification
+- rune ownership is verified-only
+- bot registration depends on verified account ownership
+- bot rune ownership depends on a verified owner account
+
+This means BTG setup can be ready locally while the server still rejects registration or rune ownership actions until the required verified account context exists.
 
 ## Contact Email
 
