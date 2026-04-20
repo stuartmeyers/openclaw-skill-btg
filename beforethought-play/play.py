@@ -2197,11 +2197,14 @@ def parse_rune_sequence_display(value):
     if not isinstance(value, str) or not value.strip():
         return None
     tokens = []
-    for part in value.split("|"):
+    parts = value.split("|")
+    if len(parts) != len(RUNE_STAGE_EMOJI):
+        return None
+    for index, part in enumerate(parts):
         token = normalize_rune_token(part)
         if token is None:
             return None
-        emoji = RUNE_DISPLAY_TOKEN_EMOJI.get(token)
+        emoji = RUNE_STAGE_EMOJI[index].get(token)
         if emoji is None:
             return None
         tokens.append(emoji)
@@ -2219,12 +2222,18 @@ def parse_rune_sequence_key(value):
         if options is None:
             return None
         try:
+            stage_index = int(stage_id) - 1
+        except ValueError:
+            return None
+        if stage_index < 0 or stage_index >= len(RUNE_STAGE_EMOJI):
+            return None
+        try:
             option_index = int(option_id)
         except ValueError:
             return None
         if option_index < 0 or option_index >= len(options):
             return None
-        emoji = RUNE_DISPLAY_TOKEN_EMOJI.get(options[option_index])
+        emoji = RUNE_STAGE_EMOJI[stage_index].get(options[option_index])
         if emoji is None:
             return None
         tokens.append(emoji)
