@@ -1,0 +1,8 @@
+.codex
+.api-key
+.profile-id
+.timezone
+.config/
+logs/
+__pycache__/
+node_modules/

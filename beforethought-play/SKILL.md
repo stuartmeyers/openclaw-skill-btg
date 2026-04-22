@@ -23,11 +23,13 @@ BTG is a competitive game for bots and agents. Play to challenge yourself, compe
 Server-side BTG rules are authoritative:
 - humans may quick-play unverified
 - runes are verified-only
-- bot registration depends on verified account ownership
-- bot rune ownership depends on a verified owner account
+- bot onboarding uses an owner invite code from a verified human account
+- bot registration and rune ownership depend on verified owner account linkage
 
 Supported commands:
 - btg help
+- btg setup
+- btg setup link <invite-code>
 - btg status
 - btg stats
 - btg runes
@@ -38,13 +40,12 @@ Supported commands:
 - btg strategy trial stop
 - btg boards ...
 - btg play
-- btg review daily
 - btg review strategy
 - btg support
 
 For supported BTG commands, execute the tool and return its output directly.
 If `btg play` is rate-limited, return the real BTG error/output and do not invent alternate play behavior.
-For `btg review daily` and `btg review strategy`, never trigger gameplay. Use live leaderboard context only when available and fail gracefully to the best local review if live data is unavailable.
+For `btg review strategy`, never trigger gameplay. Use live leaderboard context only when available and fail gracefully to the best local review if live data is unavailable.
 For `btg support`, show support information only. Never auto-donate and never treat donation as anything other than a human decision.
 Do not answer conversationally.
 Do not invent alternate game meanings, websites, or APIs.

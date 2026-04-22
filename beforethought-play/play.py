@@ -11,7 +11,7 @@ API_KEY_FILE = os.path.join(STATE_DIR, ".api-key")
 PROFILE_ID_FILE = os.path.join(STATE_DIR, ".profile-id")
 TIMEZONE_FILE = os.path.join(STATE_DIR, ".timezone")
 DISPLAY_NAME_FILE = os.path.join(STATE_DIR, ".display-name")
-PERSONALITY_FILE = os.path.join(CONFIG_DIR, "personality.json")
+CONTACT_EMAIL_FILE = os.path.join(STATE_DIR, ".contact-email")
 STRATEGY_FILE = os.path.join(CONFIG_DIR, "strategy.json")
 STRATEGY_CONTROL_FILE = os.path.join(CONFIG_DIR, "strategycontrol.json")
 AUTOPILOT_FILE = os.path.join(CONFIG_DIR, "autopilot.json")
@@ -59,7 +59,7 @@ RUNE_STAGE_EMOJI = [
     {"white": "⚪", "black": "⚫"},
     {"car": "🚗", "motorbike": "🏍️", "truck": "🚚"},
     {"hearts": "❤️", "diamonds": "♦️", "clubs": "♣️", "spades": "♠️"},
-    {"thumbs_up": "👍", "thumbs_down": "👎", "peace": "✌️", "fist": "✊", "open_hand": "✋"},
+    {"thumbs_up": "👍", "thumbs_down": "👎", "peace": "✌️", "fist": "👊", "open_hand": "✋"},
     {"1": "⚀", "2": "⚁", "3": "⚂", "4": "⚃", "5": "⚄", "6": "⚅"},
     {"square": "⬛", "triangle": "▲", "circle": "•", "star": "★", "diamond": "◆", "hexagon": "⬢", "plus": "✚", "cross": "✖️"},
     {"light_blue": "🩵", "orange": "🧡", "yellow": "💛", "green": "💚", "blue": "💙", "purple": "💜", "black": "🖤", "white": "🤍", "brown": "🤎", "pink": "🩷"},
@@ -104,7 +104,7 @@ RUNE_DISPLAY_TOKEN_EMOJI = {
     "thumbs_up": "👍",
     "thumbs_down": "👎",
     "peace": "✌️",
-    "fist": "✊",
+    "fist": "👊",
     "open_hand": "✋",
     "1": "⚀",
     "2": "⚁",
@@ -231,6 +231,29 @@ def save_display_name(display_name):
     with open(DISPLAY_NAME_FILE, "w", encoding="utf-8") as f:
         f.write(display_name.strip())
     os.chmod(DISPLAY_NAME_FILE, 0o600)
+
+
+def load_local_contact_email():
+    migrate_legacy_state()
+    if os.path.exists(CONTACT_EMAIL_FILE):
+        with open(CONTACT_EMAIL_FILE) as f:
+            value = f.read().strip()
+            if value:
+                return value
+    return None
+
+
+def save_local_contact_email(email):
+    ensure_state_dirs()
+    clean_email = normalize_bot_email(email)
+    if clean_email is None:
+        if os.path.exists(CONTACT_EMAIL_FILE):
+            os.remove(CONTACT_EMAIL_FILE)
+        return None
+    with open(CONTACT_EMAIL_FILE, "w", encoding="utf-8") as f:
+        f.write(clean_email)
+    os.chmod(CONTACT_EMAIL_FILE, 0o600)
+    return clean_email
 
 
 def save_timezone_name(timezone_name):
@@ -413,13 +436,18 @@ def require_display_name():
         return display_name
 
     print("BTG setup required: no BTG display name is configured.", file=sys.stderr)
-    print(f"Create {DISPLAY_NAME_FILE} with the bot name you want to register, or set BTG_DISPLAY_NAME.", file=sys.stderr)
+    print("Run: btg setup name <YourBotName>", file=sys.stderr)
     print("Example names: MyBot or MyBot_BTG", file=sys.stderr)
     sys.exit(1)
 
 
 def has_display_name_configured():
     return bool(load_display_name())
+
+
+def has_bot_credentials():
+    migrate_legacy_state()
+    return os.path.exists(API_KEY_FILE) and os.path.exists(PROFILE_ID_FILE)
 
 
 def print_setup_status():
@@ -429,10 +457,12 @@ def print_setup_status():
     strategy_control = load_strategycontrol()
     autopilot = load_autopilot_config()
     reports = load_reports_config()
-    has_identity = os.path.exists(API_KEY_FILE) and os.path.exists(PROFILE_ID_FILE)
+    has_identity = has_bot_credentials()
     email_status = {"ok": True, "email": None}
     if has_identity:
         email_status = fetch_bot_email(load_api_key())
+    else:
+        email_status = {"ok": True, "email": load_local_contact_email()}
 
     print("BTG Setup")
     print()
@@ -449,26 +479,23 @@ def print_setup_status():
     print(describe_report_schedule("Strategy review", reports["strategy"]))
     print(describe_per_round_report_setting(autopilot))
     print(describe_report_offset(reports))
-    print(f"Registered with BTG: {'yes' if has_identity else 'no'}")
+    print(f"Linked to BTG owner: {'yes' if has_identity else 'no'}")
+    print(f"BTG credentials: {'created' if has_identity else 'not created yet'}")
     print()
 
     if not display_name:
         print("Missing required setup: display name")
         print("Next step: btg setup name <YourBotName>")
     elif not has_identity:
-        print("Setup is ready for first real BTG registration.")
-        print("Next step: run btg status or btg play to register and start.")
+        print("Setup is ready for owner linking.")
+        print("Next step: btg setup link <invite-code>")
     else:
         print("Setup looks complete.")
 
 def load_api_key_for_setup_email():
     if os.path.exists(API_KEY_FILE):
         return load_api_key()
-    if not has_display_name_configured():
-        print("BTG setup required before email can be changed.", file=sys.stderr)
-        print("Run: btg setup name <YourBotName>", file=sys.stderr)
-        sys.exit(1)
-    return load_api_key()
+    return None
 
 def cmd_setup(args):
     action = "show" if not args else args[0]
@@ -491,7 +518,11 @@ def cmd_setup(args):
 
     if action == "email":
         if len(args) == 1:
-            result = fetch_bot_email(load_api_key_for_setup_email())
+            setup_api_key = load_api_key_for_setup_email()
+            if setup_api_key:
+                result = fetch_bot_email(setup_api_key)
+            else:
+                result = {"ok": True, "email": load_local_contact_email()}
             if result.get("ok"):
                 print(format_email_lookup_message(result))
             else:
@@ -505,16 +536,29 @@ def cmd_setup(args):
             sys.exit(1)
 
         if email_value.lower() == "clear":
-            result = update_bot_email(load_api_key_for_setup_email(), load_profile_id(), None)
-            if result.get("ok"):
-                print(format_email_update_message(result, cleared=True))
+            setup_api_key = load_api_key_for_setup_email()
+            if setup_api_key:
+                result = update_bot_email(setup_api_key, load_profile_id(), None)
+                if result.get("ok"):
+                    save_local_contact_email(None)
+                    print(format_email_update_message(result, cleared=True))
+                else:
+                    print(format_email_update_message(result, cleared=True), file=sys.stderr)
+                    sys.exit(1)
             else:
-                print(format_email_update_message(result, cleared=True), file=sys.stderr)
-                sys.exit(1)
+                save_local_contact_email(None)
+                print("Contact email cleared.")
             return
 
-        result = update_bot_email(load_api_key_for_setup_email(), load_profile_id(), email_value)
+        setup_api_key = load_api_key_for_setup_email()
+        if setup_api_key:
+            result = update_bot_email(setup_api_key, load_profile_id(), email_value)
+        else:
+            saved_email = save_local_contact_email(email_value)
+            result = {"ok": True, "email": saved_email}
         if result.get("ok"):
+            if setup_api_key:
+                save_local_contact_email(result.get("email") or email_value)
             print(format_email_update_message(result, cleared=False, attempted_email=email_value))
         else:
             print(format_email_update_message(result, cleared=False, attempted_email=email_value), file=sys.stderr)
@@ -528,6 +572,19 @@ def cmd_setup(args):
             sys.exit(1)
         save_timezone_name(args[1].strip())
         print(f"BTG timezone set to: {args[1].strip()}")
+        return
+
+    if action == "link":
+        if len(args) < 2:
+            print("Usage: btg setup link <invite-code>", file=sys.stderr)
+            sys.exit(1)
+        invite_code = " ".join(args[1:]).strip()
+        result = link_bot_with_invite(invite_code)
+        if result.get("ok"):
+            print(format_link_success_message(result))
+        else:
+            print(format_link_failure_message(result), file=sys.stderr)
+            sys.exit(1)
         return
 
     if action == "strategy":
@@ -612,45 +669,113 @@ def cmd_setup(args):
         print("Usage: btg setup autopilotnotify <off|every [n]>", file=sys.stderr)
         sys.exit(1)
 
-    print("Usage: btg setup [show|name <display-name>|email [<address>|clear]|timezone <Area/City>|strategy <mode>|strategycontrol <suggest|auto-daily|auto-weekly>|autopilot <on|off>|cap <rounds-per-day>|interval <minutes>|autopilotnotify <off|every [n]>]", file=sys.stderr)
+    print("Usage: btg setup [show|name <display-name>|email [<address>|clear]|timezone <Area/City>|link <invite-code>|strategy <mode>|strategycontrol <suggest|auto-daily|auto-weekly>|autopilot <on|off>|cap <rounds-per-day>|interval <minutes>|autopilotnotify <off|every [n]>]", file=sys.stderr)
     sys.exit(1)
 
-def register_bot():
+def store_bot_credentials(api_key, profile_id):
     ensure_state_dirs()
+    for path, val in [(API_KEY_FILE, api_key), (PROFILE_ID_FILE, profile_id)]:
+        with open(path, "w") as f:
+            f.write(str(val))
+        os.chmod(path, 0o600)
+
+
+def link_bot_with_invite(invite_code):
+    ensure_state_dirs()
+    if has_bot_credentials():
+        return {
+            "ok": False,
+            "error": "already_linked",
+            "message": "This bot already has BTG credentials. To link a different bot, use a fresh state directory.",
+        }
     display_name = require_display_name()
+    timezone_name = get_bot_timezone()
+    clean_invite_code = invite_code.strip() if isinstance(invite_code, str) else ""
+    if not clean_invite_code:
+        return {
+            "ok": False,
+            "error": "missing_invite",
+            "message": "A bot link code is required.",
+        }
+
+    payload = {
+        "displayName": display_name,
+        "timezone": timezone_name,
+        "inviteCode": clean_invite_code,
+    }
     try:
         resp = requests.post(
             f"{BASE_URL}/api/bot/register",
-            json={"displayName": display_name, "timezone": "Australia/Sydney"},
+            json=payload,
             timeout=10
         )
-        resp.raise_for_status()
-        d = resp.json()
     except requests.exceptions.ConnectionError:
-        print("BTG error: network unavailable during registration.", file=sys.stderr)
-        sys.exit(1)
+        return {"ok": False, "error": "network", "message": "network unavailable"}
     except requests.exceptions.Timeout:
-        print("BTG error: registration timed out.", file=sys.stderr)
-        sys.exit(1)
-    except Exception as e:
-        print(f"BTG error: registration failed: {e}", file=sys.stderr)
-        sys.exit(1)
+        return {"ok": False, "error": "timeout", "message": "registration timed out"}
+    except Exception:
+        return {"ok": False, "error": "request_failed", "message": "registration request failed"}
 
-    ak, pid = d.get("apiKey"), d.get("profileId")
+    try:
+        data = resp.json()
+    except ValueError:
+        data = {}
+
+    if resp.status_code == 429:
+        return {
+            "ok": False,
+            "error": "rate_limited",
+            "message": extract_api_error_detail(resp) or "Too many bot registration attempts. Please try again later.",
+            "statusCode": resp.status_code,
+        }
+    if resp.status_code < 200 or resp.status_code >= 300:
+        return {
+            "ok": False,
+            "error": "registration_failed",
+            "message": extract_api_error_detail(resp) or f"BTG registration failed with HTTP {resp.status_code}.",
+            "statusCode": resp.status_code,
+        }
+    if not isinstance(data, dict):
+        return {
+            "ok": False,
+            "error": "invalid_response",
+            "message": "BTG registration returned an invalid response.",
+            "statusCode": resp.status_code,
+        }
+
+    ak = data.get("apiKey")
+    pid = data.get("profileId")
     if not ak or not pid:
-        print("BTG error: registration failed (missing apiKey or profileId).", file=sys.stderr)
-        sys.exit(1)
+        return {
+            "ok": False,
+            "error": "invalid_response",
+            "message": "BTG registration succeeded but did not return bot credentials.",
+            "responseKeys": sorted(data.keys()),
+        }
 
-    for path, val in [(API_KEY_FILE, ak), (PROFILE_ID_FILE, pid)]:
-        with open(path, "w") as f:
-            f.write(val)
-        os.chmod(path, 0o600)
+    log_event(f"invite link response fields: {sorted(data.keys())}")
+    store_bot_credentials(ak, pid)
 
     with open(TIMEZONE_FILE, "w") as f:
-        f.write("Australia/Sydney")
+        f.write(timezone_name)
     os.chmod(TIMEZONE_FILE, 0o600)
 
-    return ak, pid
+    identity = fetch_bot_identity(ak, pid)
+    pending_email = load_local_contact_email()
+    email_result = None
+    if pending_email:
+        email_result = update_bot_email(ak, pid, pending_email)
+        if email_result.get("ok"):
+            identity["email"] = email_result.get("email")
+
+    return {
+        "ok": True,
+        "apiKey": ak,
+        "profileId": pid,
+        "registration": data,
+        "identity": identity,
+        "emailResult": email_result,
+    }
 
 def get_bot_timezone():
     migrate_legacy_state()
@@ -905,6 +1030,35 @@ def normalize_top_scores(values):
     return scores[:5]
 
 
+def normalize_recent_rounds(values):
+    if not isinstance(values, list):
+        return []
+
+    normalized = []
+    for item in values:
+        if not isinstance(item, dict):
+            continue
+        scores = [safe_int(score, 0) for score in item.get("scores", []) if isinstance(score, (int, float))]
+        stage_depths = [
+            min(7, max(0, safe_int(depth, 0)))
+            for depth in item.get("stageDepths", [])
+            if isinstance(depth, (int, float))
+        ]
+        if not scores and not stage_depths:
+            continue
+        normalized.append({
+            "scores": scores[:10],
+            "stageDepths": stage_depths[:10],
+        })
+    return normalized[-50:]
+
+
+def normalize_stage_reach_counts(raw):
+    if not isinstance(raw, dict):
+        raw = {}
+    return {str(level): max(0, safe_int(raw.get(str(level), 0))) for level in range(1, 8)}
+
+
 def normalize_strategy_summary(raw):
     if not isinstance(raw, dict):
         raw = {}
@@ -914,6 +1068,14 @@ def normalize_strategy_summary(raw):
         "highestScore": max(0, safe_int(raw.get("highestScore", 0))),
         "scoreTotal": max(0, safe_int(raw.get("scoreTotal", 0))),
         "topScores": normalize_top_scores(raw.get("topScores", [])),
+        "allScores": [safe_int(score, 0) for score in raw.get("allScores", []) if isinstance(score, (int, float))][-1000:] if isinstance(raw.get("allScores"), list) else [],
+        "stageReachCounts": normalize_stage_reach_counts(raw.get("stageReachCounts", {})),
+        "depthCounts": {
+            "5": max(0, safe_int(raw.get("depthCounts", {}).get("5", 0))) if isinstance(raw.get("depthCounts"), dict) else 0,
+            "6": max(0, safe_int(raw.get("depthCounts", {}).get("6", 0))) if isinstance(raw.get("depthCounts"), dict) else 0,
+            "7": max(0, safe_int(raw.get("depthCounts", {}).get("7", 0))) if isinstance(raw.get("depthCounts"), dict) else 0,
+        },
+        "recentRounds": normalize_recent_rounds(raw.get("recentRounds", [])),
     }
 
 
@@ -968,15 +1130,69 @@ def extend_top_scores(existing, new_scores):
     return combined[:5]
 
 
-def apply_scores_to_strategy_summary(summary, game_scores):
+def median_int(values):
+    nums = sorted([safe_int(value, 0) for value in values if isinstance(value, (int, float))])
+    if not nums:
+        return 0
+    mid = len(nums) // 2
+    if len(nums) % 2 == 1:
+        return nums[mid]
+    return int(round((nums[mid - 1] + nums[mid]) / 2))
+
+
+def normalize_strategy_game_entries(game_entries):
+    normalized = []
+    if not isinstance(game_entries, list):
+        return normalized
+
+    for entry in game_entries:
+        if isinstance(entry, dict):
+            score = safe_int(entry.get("finalScore", entry.get("score", 0)), 0)
+            streaks = entry.get("streaks")
+            if isinstance(streaks, list):
+                stage_depth = sum(1 for value in streaks[:7] if safe_int(value, 0) > 0)
+            else:
+                stage_depth = None
+        else:
+            score = safe_int(entry, 0)
+            stage_depth = None
+        normalized.append({
+            "score": score,
+            "stageDepth": stage_depth,
+        })
+    return normalized
+
+
+def apply_scores_to_strategy_summary(summary, game_entries):
     normalized = normalize_strategy_summary(summary)
-    scores = [safe_int(score, 0) for score in game_scores if safe_int(score, 0) > 0]
-    normalized["games"] += len(game_scores)
+    entries = normalize_strategy_game_entries(game_entries)
+    scores = [entry["score"] for entry in entries]
+    positive_scores = [score for score in scores if score > 0]
+    stage_depths = [entry["stageDepth"] for entry in entries if isinstance(entry.get("stageDepth"), int)]
+
+    normalized["games"] += len(entries)
     normalized["rounds"] += 1
-    normalized["scoreTotal"] += sum(safe_int(score, 0) for score in game_scores)
-    if scores:
-        normalized["highestScore"] = max(normalized["highestScore"], max(scores))
-        normalized["topScores"] = extend_top_scores(normalized["topScores"], scores)
+    normalized["scoreTotal"] += sum(scores)
+    normalized["allScores"] = (normalized.get("allScores", []) + scores)[-1000:]
+    if positive_scores:
+        normalized["highestScore"] = max(normalized["highestScore"], max(positive_scores))
+        normalized["topScores"] = extend_top_scores(normalized["topScores"], positive_scores)
+
+    for depth in stage_depths:
+        for level in range(1, 8):
+            if depth >= level:
+                normalized["stageReachCounts"][str(level)] += 1
+        if depth >= 5:
+            normalized["depthCounts"]["5"] += 1
+        if depth >= 6:
+            normalized["depthCounts"]["6"] += 1
+        if depth >= 7:
+            normalized["depthCounts"]["7"] += 1
+
+    normalized["recentRounds"] = (normalized.get("recentRounds", []) + [{
+        "scores": scores,
+        "stageDepths": stage_depths,
+    }])[-50:]
     return normalized
 
 
@@ -1011,12 +1227,33 @@ def summarize_strategy_summary(summary):
     average_score = int(round(normalized["scoreTotal"] / games)) if games > 0 else 0
     top_scores = normalized["topScores"]
     top_five_average = int(round(sum(top_scores) / len(top_scores))) if top_scores else 0
+    all_scores = normalized.get("allScores", [])
+    recent_rounds = normalized.get("recentRounds", [])
+    recent_10_round_scores = []
+    recent_10_round_depths = []
+    for round_entry in recent_rounds[-10:]:
+        recent_10_round_scores.extend(round_entry.get("scores", []))
+        recent_10_round_depths.extend(round_entry.get("stageDepths", []))
+    recent_100_scores = all_scores[-100:]
     return {
         "games": games,
         "rounds": rounds,
         "highestScore": highest,
         "averageScore": average_score,
         "topFiveAverage": top_five_average,
+        "medianScore": median_int(all_scores) if all_scores else None,
+        "stageReachCounts": normalized.get("stageReachCounts", {}),
+        "depthCounts": normalized.get("depthCounts", {}),
+        "recent100Games": len(recent_100_scores),
+        "recent100Average": int(round(sum(recent_100_scores) / len(recent_100_scores))) if recent_100_scores else 0,
+        "recent100Median": median_int(recent_100_scores),
+        "recent10Rounds": len(recent_rounds[-10:]),
+        "recent10RoundGames": len(recent_10_round_scores),
+        "recent10RoundAverage": int(round(sum(recent_10_round_scores) / len(recent_10_round_scores))) if recent_10_round_scores else 0,
+        "recent10RoundMedian": median_int(recent_10_round_scores),
+        "recent10Round5Plus": sum(1 for depth in recent_10_round_depths if safe_int(depth, 0) >= 5),
+        "recent10Round6Plus": sum(1 for depth in recent_10_round_depths if safe_int(depth, 0) >= 6),
+        "recent10Round7Plus": sum(1 for depth in recent_10_round_depths if safe_int(depth, 0) >= 7),
     }
 
 
@@ -2358,6 +2595,289 @@ def format_level_theme_right_review_lines(level_theme_right):
         lines.insert(1, f"Level {unlocked_level} will have {choice_count} choices.")
     return lines
 
+
+def strategy_metric_is_proven(metric):
+    return isinstance(metric, dict) and metric.get("games", 0) >= 30 and metric.get("rounds", 0) >= 3
+
+
+def select_best_proven_strategy(strategy_metrics):
+    best_mode = None
+    best_metric = None
+    for mode, metric in strategy_metrics.items():
+        if not strategy_metric_is_proven(metric):
+            continue
+        if best_metric is None:
+            best_mode = mode
+            best_metric = metric
+            continue
+        challenger = (
+            metric.get("averageScore", 0),
+            metric.get("topFiveAverage", 0),
+            metric.get("highestScore", 0),
+            metric.get("games", 0),
+        )
+        incumbent = (
+            best_metric.get("averageScore", 0),
+            best_metric.get("topFiveAverage", 0),
+            best_metric.get("highestScore", 0),
+            best_metric.get("games", 0),
+        )
+        if challenger > incumbent:
+            best_mode = mode
+            best_metric = metric
+    return best_mode, best_metric
+
+
+def describe_strategy_data_quality(current_run_summary, current_historical_summary, proven_count, best_proven_metric):
+    has_current_run = current_run_summary.get("games", 0) > 0
+    has_older_baseline = (
+        has_current_run
+        and current_historical_summary.get("games", 0) > current_run_summary.get("games", 0)
+        and current_historical_summary.get("rounds", 0) >= current_run_summary.get("rounds", 0)
+    )
+
+    if not has_current_run and proven_count == 0:
+        return "weak", "no current run and no proven strategy yet", has_older_baseline
+    if has_current_run and not has_older_baseline:
+        return "moderate", "one run only, no older baseline yet", has_older_baseline
+    if proven_count >= 3 and best_proven_metric and best_proven_metric.get("games", 0) >= 100:
+        return "strong", "at least 3 proven strategies and best proven has 100+ games", has_older_baseline
+    if proven_count >= 1:
+        return "moderate", "at least one strategy has 30+ games across 3+ rounds", has_older_baseline
+    return "weak", "no strategy has reached 30 games across 3 rounds yet", has_older_baseline
+
+
+def compare_metric_line(label, current_metric, best_metric, key):
+    if not best_metric:
+        return f"- {label}: not enough proven data yet"
+    current_value = current_metric.get(key)
+    best_value = best_metric.get(key)
+    if current_value is None or best_value is None:
+        return f"- {label}: not recorded yet"
+    return f"- {label}: {current_value} vs {best_value}"
+
+
+def strategy_metric_value(metric, key):
+    value = metric.get(key) if isinstance(metric, dict) else None
+    return value if value is not None else "not recorded yet"
+
+
+def format_stage_reach_line(label, metric):
+    reach = metric.get("stageReachCounts", {}) if isinstance(metric, dict) else {}
+    depth = metric.get("depthCounts", {}) if isinstance(metric, dict) else {}
+    if not any(safe_int(reach.get(str(level), 0), 0) for level in range(1, 8)):
+        return f"- {label}: stage-depth evidence not recorded yet"
+    reach_text = ", ".join(f"{level}+={safe_int(reach.get(str(level), 0), 0)}" for level in range(1, 8))
+    return (
+        f"- {label}: {reach_text}; "
+        f"5/7={safe_int(depth.get('5', 0), 0)}, "
+        f"6/7={safe_int(depth.get('6', 0), 0)}, "
+        f"7/7={safe_int(depth.get('7', 0), 0)}"
+    )
+
+
+def choose_strategy_recommendation(current_strategy, current_metric, best_proven_mode, best_proven_metric, data_quality):
+    if not best_proven_mode or not best_proven_metric:
+        return "continue only as a deliberate experiment", "no proven local strategy exists yet"
+
+    if current_strategy == best_proven_mode:
+        return "stay with current strategy", f"{current_strategy} is the best proven strategy"
+
+    current_games = current_metric.get("games", 0)
+    if data_quality == "weak" or current_games < 30:
+        return "continue only as a deliberate experiment", "current strategy does not have enough local evidence yet"
+
+    current_average = current_metric.get("averageScore", 0)
+    best_average = best_proven_metric.get("averageScore", 0)
+    current_top_five = current_metric.get("topFiveAverage", 0)
+    best_top_five = best_proven_metric.get("topFiveAverage", 0)
+    if current_average >= best_average and current_top_five >= best_top_five:
+        return "stay with current strategy", "current strategy matches or beats the best proven strategy on average and top 5 average"
+
+    return "return to the best proven strategy", f"{best_proven_mode} has the stronger proven record"
+
+
+def exploration_candidate_reason(candidate_mode, candidate_metric, current_metric):
+    candidate_games = candidate_metric.get("games", 0)
+    candidate_rounds = candidate_metric.get("rounds", 0)
+    if candidate_games <= 0:
+        return "it is untested locally"
+
+    current_top_five = current_metric.get("topFiveAverage", 0)
+    candidate_top_five = candidate_metric.get("topFiveAverage", 0)
+    if candidate_top_five > current_top_five:
+        return f"it has a stronger top 5 average than the current strategy ({candidate_top_five} vs {current_top_five})"
+
+    current_peak = current_metric.get("highestScore", 0)
+    candidate_peak = candidate_metric.get("highestScore", 0)
+    if candidate_peak > current_peak:
+        return f"it has a stronger recorded peak than the current strategy ({candidate_peak} vs {current_peak})"
+
+    current_median = current_metric.get("medianScore")
+    candidate_median = candidate_metric.get("medianScore")
+    if candidate_median is not None and (current_median is None or candidate_median > current_median):
+        current_text = current_median if current_median is not None else "not recorded"
+        return f"it has a stronger recorded median than the current strategy ({candidate_median} vs {current_text})"
+
+    candidate_depth = (
+        candidate_metric.get("recent10Round5Plus", 0),
+        candidate_metric.get("recent10Round6Plus", 0),
+        candidate_metric.get("recent10Round7Plus", 0),
+    )
+    current_depth = (
+        current_metric.get("recent10Round5Plus", 0),
+        current_metric.get("recent10Round6Plus", 0),
+        current_metric.get("recent10Round7Plus", 0),
+    )
+    if candidate_metric.get("recent10RoundGames", 0) > 0 and candidate_depth > current_depth:
+        return (
+            "it has stronger recent stage-depth evidence than the current strategy "
+            f"({candidate_depth[0]}x5/7+, {candidate_depth[1]}x6/7+, {candidate_depth[2]}x7/7 vs "
+            f"{current_depth[0]}x5/7+, {current_depth[1]}x6/7+, {current_depth[2]}x7/7)"
+        )
+
+    if candidate_games < 30 or candidate_rounds < 3:
+        return "it is lightly tested locally and would fill a real evidence gap"
+
+    return None
+
+
+def strategy_exploration_candidate(current_strategy, strategy_metrics, best_proven_mode):
+    current_metric = strategy_metrics.get(current_strategy, {})
+    candidates = []
+    for mode, metric in strategy_metrics.items():
+        if mode in [current_strategy, best_proven_mode]:
+            continue
+        candidate_reason = exploration_candidate_reason(mode, metric, current_metric)
+        if not candidate_reason:
+            continue
+        candidates.append((mode, metric, candidate_reason))
+
+    if not candidates:
+        return None, None, None
+
+    candidates.sort(
+        key=lambda item: (
+            item[1].get("recent10Round6Plus", 0),
+            item[1].get("recent10Round5Plus", 0),
+            item[1].get("topFiveAverage", 0),
+            item[1].get("medianScore") if item[1].get("medianScore") is not None else -1,
+            item[1].get("averageScore", 0),
+            item[1].get("highestScore", 0),
+        ),
+        reverse=True,
+    )
+    return candidates[0]
+
+
+def describe_exploration_candidate(candidate_metric, best_proven_metric):
+    games = candidate_metric.get("games", 0)
+    rounds = candidate_metric.get("rounds", 0)
+    top_five = candidate_metric.get("topFiveAverage", 0)
+    best_top_five = best_proven_metric.get("topFiveAverage", 0) if isinstance(best_proven_metric, dict) else 0
+    recent_depth = candidate_metric.get("recent10Round5Plus", 0) + candidate_metric.get("recent10Round6Plus", 0) + candidate_metric.get("recent10Round7Plus", 0)
+
+    if games <= 0:
+        return "it is still untested locally, so this would be pure exploration rather than evidence"
+    if games < 30 or rounds < 3:
+        if top_five > 0:
+            return "it has shown promising upside, but it is still lightly tested and less proven than the main recommendation"
+        return "it is lightly tested locally, so this would mainly gather missing evidence"
+    if top_five > best_top_five:
+        return "it has a stronger recorded top 5 average, but less proven consistency than the main recommendation"
+    if recent_depth > 0:
+        return "it has recent stage-depth signs, but less proof than the best proven strategy"
+    return "it has some local history, but less proof than the best proven strategy"
+
+
+def should_offer_strategy_exploration(current_strategy, current_metric, best_proven_mode, best_proven_metric, recommendation):
+    if not best_proven_mode or not best_proven_metric:
+        return False, "no best proven strategy exists yet"
+
+    current_games = current_metric.get("games", 0)
+    if current_games < 30:
+        return False, "current strategy does not have enough history yet"
+
+    best_average = best_proven_metric.get("averageScore", 0)
+    current_average = current_metric.get("averageScore", 0)
+    best_top_five = best_proven_metric.get("topFiveAverage", 0)
+    current_top_five = current_metric.get("topFiveAverage", 0)
+
+    clearly_behind = (
+        best_proven_mode != current_strategy
+        and (
+            best_average - current_average >= 100
+            or best_top_five - current_top_five >= 1000
+        )
+    )
+
+    stale_recent = False
+    if current_metric.get("recent10RoundGames", 0) >= 30:
+        stale_recent = (
+            current_metric.get("recent10RoundAverage", 0) + 75 < current_average
+            and current_metric.get("recent10Round5Plus", 0) == 0
+            and current_metric.get("recent10Round6Plus", 0) == 0
+            and current_metric.get("recent10Round7Plus", 0) == 0
+        )
+
+    if recommendation == "continue only as a deliberate experiment":
+        return True, "the main recommendation is already experimental"
+    if clearly_behind:
+        return True, "current strategy is clearly behind the best proven strategy"
+    if stale_recent:
+        return True, "recent 10-round window looks stale against the all-time current strategy record"
+    return False, "no exploration trigger met"
+
+
+def build_optional_exploration_line(current_strategy, strategy_metrics, best_proven_mode, best_proven_metric, recommendation):
+    current_metric = strategy_metrics.get(current_strategy, {})
+    should_offer, trigger_reason = should_offer_strategy_exploration(
+        current_strategy,
+        current_metric,
+        best_proven_mode,
+        best_proven_metric,
+        recommendation,
+    )
+    if not should_offer:
+        return None
+
+    candidate_mode, candidate_metric, candidate_reason = strategy_exploration_candidate(
+        current_strategy,
+        strategy_metrics,
+        best_proven_mode,
+    )
+    if not candidate_mode or not candidate_metric:
+        return None
+
+    candidate_description = describe_exploration_candidate(candidate_metric, best_proven_metric)
+    supporting_details = []
+    if candidate_metric.get("recent10RoundGames", 0) > 0:
+        supporting_details.append(
+            f"recent 10-round average {candidate_metric['recent10RoundAverage']}"
+        )
+        if candidate_metric.get("recent10Round5Plus", 0) or candidate_metric.get("recent10Round6Plus", 0):
+            supporting_details.append(
+                f"recent depth {candidate_metric['recent10Round5Plus']}x5/7+, {candidate_metric['recent10Round6Plus']}x6/7+"
+            )
+    if candidate_metric.get("medianScore") is not None:
+        supporting_details.append(f"median {candidate_metric['medianScore']}")
+    if candidate_metric.get("topFiveAverage", 0) > 0:
+        supporting_details.append(f"top 5 average {candidate_metric.get('topFiveAverage', 0)}")
+
+    details_text = f" ({', '.join(supporting_details)})" if supporting_details else ""
+
+    if candidate_metric.get("games", 0) <= 0:
+        return (
+            f"- Optional exploration: if you want to test something new, try {candidate_mode} next "
+            f"because {trigger_reason}; specific reason: {candidate_reason}, so this would gather fresh evidence rather than rely on proof"
+        )
+
+    return (
+        f"- Optional exploration: if you want to test something new, try {candidate_mode} next "
+        f"because {trigger_reason}; specific reason: {candidate_reason}; {candidate_description}{details_text}"
+    )
+
+
 def build_strategy_review_lines(api_key, profile_id):
     stats = fetch_player_stats_for_review(api_key, profile_id)
     current_strategy = load_strategy()
@@ -2443,149 +2963,98 @@ def build_strategy_review_lines(api_key, profile_id):
     historical_summaries = strategy_stats.get("strategies", {})
     strategy_modes = ["random", "hot-pick-player", "hot-pick-computer", "pick-due", "cold-avoid"]
     current_historical_summary = summarize_strategy_summary(historical_summaries.get(current_strategy, {}))
-    has_current_run = current_run_summary["games"] > 0
-    has_older_baseline = (
-        has_current_run
-        and current_historical_summary["games"] > current_run_summary["games"]
-        and current_historical_summary["rounds"] >= current_run_summary["rounds"]
-    )
 
     strategy_metrics = {}
     for mode in strategy_modes:
         strategy_metrics[mode] = summarize_strategy_summary(historical_summaries.get(mode, {}))
 
-    best_average_mode = None
-    best_average_metric = None
-    best_peak_mode = None
-    best_peak_metric = None
-    least_tested_mode = None
-    least_tested_metric = None
-    untried_modes = [mode for mode in strategy_modes if strategy_metrics[mode]["games"] <= 0]
+    best_proven_mode, best_proven_metric = select_best_proven_strategy(strategy_metrics)
+    proven_count = sum(1 for metric in strategy_metrics.values() if strategy_metric_is_proven(metric))
+    data_quality, data_quality_reason, has_older_baseline = describe_strategy_data_quality(
+        current_run_summary,
+        current_historical_summary,
+        proven_count,
+        best_proven_metric,
+    )
+    recommendation, recommendation_reason = choose_strategy_recommendation(
+        current_strategy,
+        current_historical_summary,
+        best_proven_mode,
+        best_proven_metric,
+        data_quality,
+    )
 
-    for mode in strategy_modes:
-        metric = strategy_metrics[mode]
-        if metric["games"] <= 0:
-            continue
-        if best_average_metric is None or metric["averageScore"] > best_average_metric["averageScore"]:
-            best_average_mode = mode
-            best_average_metric = metric
-        if best_peak_metric is None or metric["highestScore"] > best_peak_metric["highestScore"]:
-            best_peak_mode = mode
-            best_peak_metric = metric
-        if least_tested_metric is None or metric["games"] < least_tested_metric["games"]:
-            least_tested_mode = mode
-            least_tested_metric = metric
-
-    if least_tested_metric:
-        least_tested_line = f"{least_tested_mode} with {least_tested_metric['games']} games"
-    else:
-        least_tested_line = None
-
-    verdict = "Stay"
-    confidence = "low"
-    breakthrough_watch = "Breakthrough watch: momentum is still forming, so this looks more like signal-gathering than proof."
-
-    if not has_current_run:
-        verdict = "Stay"
-        confidence = "low"
-        breakthrough_watch = "Breakthrough watch: no current-run round yet, so the first goal is to build a usable signal."
-    elif current_run_summary["highestScore"] >= 5000 or current_run_summary["topFiveAverage"] >= 1500:
-        breakthrough_watch = "Breakthrough watch: there is real upside in this run, but it still needs more rounds before it becomes trustworthy."
-    elif current_run_summary["highestScore"] >= 2500 or current_run_summary["averageScore"] >= 700:
-        breakthrough_watch = "Breakthrough watch: there is some live momentum here, even if it is not a proven breakthrough yet."
-
-    if has_current_run and has_older_baseline:
-        avg_delta = current_run_summary["averageScore"] - current_historical_summary["averageScore"]
-        top_five_delta = current_run_summary["topFiveAverage"] - current_historical_summary["topFiveAverage"]
-        if avg_delta >= 100 or top_five_delta >= 300:
-            verdict = "Stay"
-            confidence = "high" if current_run_summary["games"] >= 30 else "medium"
-        elif avg_delta <= -150 and best_average_mode and best_average_mode != current_strategy:
-            verdict = "Switch"
-            confidence = "high" if current_run_summary["games"] >= 30 else "medium"
-        else:
-            verdict = "Test"
-            confidence = "medium" if current_run_summary["games"] >= 20 else "low"
-    elif has_current_run:
-        if current_run_summary["games"] >= 30 and best_average_mode and best_average_mode != current_strategy:
-            verdict = "Test"
-            confidence = "medium"
-        else:
-            verdict = "Stay"
-            confidence = "low"
-
-    confidence_reason = {
-        "low": "limited local history",
-        "medium": "some useful local history",
-        "high": "stronger local history",
-    }.get(confidence, "limited local history")
-
-    option_lines = []
-    option_lines.append(f"- Stay with {current_strategy}: `/btg strategy {current_strategy}`")
-
-    if best_average_mode and best_average_mode != current_strategy:
-        option_lines.append(
-            f"- Return to {best_average_mode}: `/btg strategy {best_average_mode}`"
-        )
-
-    exploratory_mode = None
-    exploratory_reason = None
-    for mode in untried_modes:
-        if mode != current_strategy:
-            exploratory_mode = mode
-            exploratory_reason = "it is still untested locally, so this would be a true fresh experiment"
-            break
-    if exploratory_mode is None and least_tested_mode and least_tested_mode != current_strategy:
-        exploratory_mode = least_tested_mode
-        exploratory_reason = f"it has only {least_tested_metric['games']} logged games"
-    if exploratory_mode and exploratory_mode != best_average_mode:
-        option_lines.append(
-            f"- Try {exploratory_mode}: `/btg strategy {exploratory_mode}`"
-        )
+    best_proven_label = best_proven_mode if best_proven_mode else "none yet"
 
     lines = [
         f"- Current strategy: {current_strategy}",
-        f"- Verdict: {verdict}",
-        f"- Confidence: {confidence} ({confidence_reason})",
+        f"- Data quality: {data_quality} ({data_quality_reason})",
+        "- Proven rule: a strategy needs at least 30 games across 3 rounds to count as proven",
+        f"- Best proven strategy: {best_proven_label}",
     ]
 
-    if has_current_run:
+    if current_run_summary["games"] > 0:
         lines.append(
-            f"- Current run stats: {current_run_summary['games']} games across {current_run_summary['rounds']} rounds, highest {current_run_summary['highestScore']}, average {current_run_summary['averageScore']}, top 5 average {current_run_summary['topFiveAverage']}"
+            f"- Current run: {current_run_summary['games']} games across {current_run_summary['rounds']} rounds, average {current_run_summary['averageScore']}, median {strategy_metric_value(current_run_summary, 'medianScore')}, peak {current_run_summary['highestScore']}, top 5 average {current_run_summary['topFiveAverage']}"
         )
     else:
-        lines.append("- Current run stats: no completed local round yet")
+        lines.append("- Current run: no completed local round yet")
 
-    if not has_current_run and current_historical_summary["games"] > 0:
+    if current_historical_summary["games"] > 0:
         lines.append(
-            f"- Historical baseline: highest {current_historical_summary['highestScore']}, average {current_historical_summary['averageScore']}, top 5 average {current_historical_summary['topFiveAverage']} across {current_historical_summary['games']} games"
-        )
-    elif has_current_run and not has_older_baseline:
-        lines.append("- Historical baseline: No older baseline yet. This current run is the baseline so far.")
-    elif current_historical_summary["games"] > 0:
-        lines.append(
-            f"- Historical baseline: highest {current_historical_summary['highestScore']}, average {current_historical_summary['averageScore']}, top 5 average {current_historical_summary['topFiveAverage']} across {current_historical_summary['games']} games"
+            f"- Current strategy all-time: {current_historical_summary['games']} games across {current_historical_summary['rounds']} rounds, average {current_historical_summary['averageScore']}, median {strategy_metric_value(current_historical_summary, 'medianScore')}, peak {current_historical_summary['highestScore']}, top 5 average {current_historical_summary['topFiveAverage']}"
         )
     else:
-        lines.append("- Historical baseline: none yet")
+        lines.append("- Current strategy all-time: no local history yet")
 
-    if best_average_metric:
+    if current_run_summary["games"] > 0 and not has_older_baseline:
+        lines.append("- Current strategy baseline: no older baseline yet; this current run is the only local sample")
+    elif has_older_baseline:
         lines.append(
-            f"- Best average on record: {best_average_mode} with {best_average_metric['averageScore']} average"
+            "- Current strategy baseline: older baseline exists in all-time local history"
         )
-    if best_peak_metric:
-        lines.append(
-            f"- Best peak on record: {best_peak_mode} with {best_peak_metric['highestScore']} highest"
-        )
-    if untried_modes:
-        lines.append(f"- Fresh test option: {untried_modes[0]} has not been tried locally yet")
-    elif least_tested_line:
-        lines.append(f"- Least-tested option: {least_tested_line}")
-    lines.append(f"- {breakthrough_watch}")
 
-    if option_lines:
-        lines.append("Options:")
-        lines.extend(option_lines[:3])
+    lines.append(compare_metric_line("Current vs best proven average", current_historical_summary, best_proven_metric, "averageScore"))
+    lines.append(compare_metric_line("Current vs best proven peak", current_historical_summary, best_proven_metric, "highestScore"))
+    lines.append(compare_metric_line("Current vs best proven top 5 average", current_historical_summary, best_proven_metric, "topFiveAverage"))
+    lines.append(compare_metric_line("Current vs best proven median", current_historical_summary, best_proven_metric, "medianScore"))
+
+    if current_historical_summary["recent100Games"] > 0:
+        lines.append(
+            f"- Current recent 100 games: {current_historical_summary['recent100Games']} games, average {current_historical_summary['recent100Average']}, median {current_historical_summary['recent100Median']}"
+        )
+    else:
+        lines.append("- Current recent 100 games: not enough locally recorded detail yet")
+
+    if current_historical_summary["recent10RoundGames"] > 0:
+        lines.append(
+            f"- Current recent 10 rounds: {current_historical_summary['recent10RoundGames']} games, average {current_historical_summary['recent10RoundAverage']}, median {current_historical_summary['recent10RoundMedian']}, 5/7+ {current_historical_summary['recent10Round5Plus']}, 6/7+ {current_historical_summary['recent10Round6Plus']}, 7/7 {current_historical_summary['recent10Round7Plus']}"
+        )
+    else:
+        lines.append("- Current recent 10 rounds: not enough locally recorded detail yet")
+
+    lines.append(format_stage_reach_line("Current stage reach", current_historical_summary))
+    if best_proven_metric and best_proven_mode != current_strategy:
+        lines.append(format_stage_reach_line(f"Best proven stage reach ({best_proven_mode})", best_proven_metric))
+
+    lines.append(f"- Recommendation: {recommendation}")
+    lines.append(f"- Recommendation reason: {recommendation_reason}")
+    if recommendation == "return to the best proven strategy" and best_proven_mode:
+        lines.append(f"- Action: /btg strategy {best_proven_mode}")
+    elif recommendation == "stay with current strategy":
+        lines.append(f"- Action: keep /btg strategy {current_strategy}")
+    else:
+        lines.append("- Action: keep this only if you deliberately want more experiment data")
+
+    optional_exploration_line = build_optional_exploration_line(
+        current_strategy,
+        strategy_metrics,
+        best_proven_mode,
+        best_proven_metric,
+        recommendation,
+    )
+    if optional_exploration_line:
+        lines.append(optional_exploration_line)
 
     review_breakthrough_lines = format_level_theme_right_review_lines(level_theme_right)
     if review_breakthrough_lines:
@@ -2605,19 +3074,16 @@ def load_key(path, idx):
             v = f.read().strip()
             if v:
                 return v
-    return register_bot()[idx]
+    print("BTG setup required: this bot is not linked to a BTG owner yet.", file=sys.stderr)
+    print("Ask the human owner to create a bot link code in BTG Settings -> My Bots.", file=sys.stderr)
+    print("Then run: btg setup link <invite-code>", file=sys.stderr)
+    sys.exit(1)
 
 def load_api_key():
     return load_key(API_KEY_FILE, 0)
 
 def load_profile_id():
     return load_key(PROFILE_ID_FILE, 1)
-
-def load_personality():
-    return "balanced"
-
-def save_personality(mode):
-    pass
 
 def load_strategy():
     migrate_legacy_state()
@@ -2769,7 +3235,7 @@ def fetch_bot_identity(api_key, profile_id=None):
             "profileId": profile_id,
             "displayName": None,
             "displaySuffix": None,
-            "fullName": None
+            "fullName": f"profile {profile_id}" if profile_id else "Unknown"
         }
 
     try:
@@ -3111,6 +3577,72 @@ def format_email_update_message(result, cleared=False, attempted_email=None):
     if cleared or not email:
         return "Contact email cleared."
     return f"Contact email set to: {email or attempted_email}"
+
+def format_link_success_message(result):
+    identity = result.get("identity") if isinstance(result, dict) else {}
+    if not isinstance(identity, dict):
+        identity = {}
+    registration = result.get("registration") if isinstance(result, dict) else {}
+    if not isinstance(registration, dict):
+        registration = {}
+
+    full_name = identity.get("fullName") or registration.get("fullName")
+    display_name = identity.get("displayName") or registration.get("displayName")
+    display_suffix = identity.get("displaySuffix") or registration.get("displaySuffix")
+    if not full_name and display_name:
+        full_name = f"{display_name}#{display_suffix}" if display_suffix else display_name
+    if not full_name:
+        full_name = f"profile {result.get('profileId')}"
+
+    lines = [
+        "BTG link complete.",
+        f"Bot profile: {full_name}",
+        "Linked to BTG owner: yes",
+        "BTG credentials saved locally.",
+        "This bot can now play as its own BTG profile.",
+    ]
+
+    email_result = result.get("emailResult") if isinstance(result, dict) else None
+    if isinstance(email_result, dict):
+        if email_result.get("ok"):
+            email = normalize_bot_email(email_result.get("email"))
+            lines.append(f"Contact email synced: {email if email else 'not set'}")
+        else:
+            detail = email_result.get("error") or "unknown error"
+            lines.append(f"Contact email not synced yet: {detail}")
+
+    lines.extend([
+        "Next step:",
+        "btg status",
+        "btg play",
+    ])
+    return "\n".join(lines)
+
+def format_link_failure_message(result):
+    message = None
+    error = None
+    if isinstance(result, dict):
+        message = result.get("message")
+        error = result.get("error")
+
+    if error == "already_linked":
+        return message
+    if error == "missing_invite":
+        return "Could not link this bot.\nA bot link code is required.\nRun: btg setup link <invite-code>"
+    if error == "rate_limited":
+        return f"Could not link this bot.\n{message or 'Too many bot registration attempts. Please try again later.'}"
+    if error in ["network", "timeout", "request_failed"]:
+        return f"Could not link this bot.\nBTG registration request failed: {message or error}."
+
+    clean_message = message or "The invite code is invalid, expired, or already used."
+    if "invalid" in clean_message.lower() and "already used" in clean_message.lower():
+        return (
+            "Could not link this bot.\n"
+            "The invite code is invalid, expired, or already used.\n"
+            "Ask the human owner to generate a fresh code from BTG Settings -> My Bots, then run:\n"
+            "btg setup link <invite-code>"
+        )
+    return f"Could not link this bot.\n{clean_message}"
 
 def print_player_identity(api_key, profile_id):
     identity = fetch_bot_identity(api_key, profile_id)
@@ -3482,6 +4014,7 @@ def cmd_help_examples():
     print_help_entry("/btg setup email bot@example.com", "Set the contact email")
     print_help_entry("/btg setup email clear", "Clear the contact email")
     print_help_entry("/btg setup timezone Australia/Sydney", "Set the BTG timezone")
+    print_help_entry("/btg setup link BTG-7KQ9-M2P4", "Link with an owner invite code")
     print_help_entry("/btg setup strategy cold-avoid", "Set the default strategy")
     print_help_entry("/btg setup strategycontrol auto-daily", "Set the strategy control mode")
     print_help_entry("/btg setup autopilot on", "Turn autopilot on")
@@ -3549,6 +4082,7 @@ def cmd_help(args=None):
     print_help_entry("/btg setup email <address>", "Set the contact email")
     print_help_entry("/btg setup email clear", "Clear the contact email")
     print_help_entry("/btg setup timezone <Area/City>", "Set the BTG timezone")
+    print_help_entry("/btg setup link <invite-code>", "Link with an owner invite code")
     print_help_entry("/btg setup strategy <mode>", "Set the default strategy")
     print_help_entry("/btg setup strategycontrol <mode>", "Set the strategy control mode")
     print_help_entry("/btg setup autopilot on", "Turn autopilot on")
@@ -4046,8 +4580,8 @@ def cmd_play(api_key, profile_id, trigger_source="manual"):
         "averageScore": average_score,
         "gameScores": game_scores,
     })
-    record_strategy_round(current_strategy, game_scores)
-    record_strategy_trial_round(current_strategy, game_scores, completed_at=completed_at)
+    record_strategy_round(current_strategy, results)
+    record_strategy_trial_round(current_strategy, results, completed_at=completed_at)
     log_event(f"round complete: games={games_completed}/{n} top_score={best} strategy={current_strategy}")
     return {
         "played": True,
@@ -4159,6 +4693,10 @@ def cmd_pickstats(api_key, profile_id):
             print(f"- {format_stage_name(stage)}: {due_opt.upper()} picks={due_picks} ({stage_pct:.1f}%{gap_text})")
 
 def cmd_status(api_key, profile_id):
+    if not api_key or not profile_id:
+        print_setup_status()
+        return
+
     stats = fetch_player_stats(api_key, profile_id)
     sb = stats.get("scoreboard", {})
     streaks = stats.get("streaks", {}).get("byStage", {})
@@ -4300,7 +4838,7 @@ def main():
 
     requires_identity = True
 
-    if cmd in ["help", "setup", "support", "reports"]:
+    if cmd in ["help", "setup", "support", "reports", "status"]:
         requires_identity = False
     elif cmd == "strategy" and args and args[0] == "trial":
         requires_identity = False
@@ -4309,7 +4847,7 @@ def main():
             cmd_help()
             sys.exit(0)
         subcmd = args[0]
-        if subcmd in ["help", "setup", "support", "reports"]:
+        if subcmd in ["help", "setup", "support", "reports", "status"]:
             requires_identity = False
         elif subcmd == "strategy" and len(args) >= 2 and args[1] == "trial":
             requires_identity = False
@@ -4319,9 +4857,12 @@ def main():
             print("BTG setup required before this command.", file=sys.stderr)
             print("Run: btg setup", file=sys.stderr)
             sys.exit(1)
-        if not os.path.exists(API_KEY_FILE) or not os.path.exists(PROFILE_ID_FILE):
-            log_event("identity missing: attempting first-run registration")
-            api_key, profile_id = register_bot()
+        if not has_bot_credentials():
+            log_event("identity missing: setup link required")
+            print("BTG setup required: this bot is not linked to a BTG owner yet.", file=sys.stderr)
+            print("Ask the human owner to create a bot link code in BTG Settings -> My Bots.", file=sys.stderr)
+            print("Then run: btg setup link <invite-code>", file=sys.stderr)
+            sys.exit(1)
         else:
             api_key = load_api_key()
             profile_id = load_profile_id()
@@ -4330,6 +4871,8 @@ def main():
         profile_id = None
 
     should_manage_trial = cmd not in ["help", "setup", "support"]
+    if not api_key or not profile_id:
+        should_manage_trial = False
     if cmd == "strategy" and args and args[0] == "trial":
         should_manage_trial = False
     if cmd == "btg" and args:
@@ -4381,10 +4924,6 @@ def main():
             cmd_reports(subargs)
         elif subcmd == "support":
             cmd_support()
-        elif subcmd == "personality":
-            mode = "balanced" if len(subargs) == 0 else subargs[0]
-            save_personality(mode)
-            print(f"Personality set to: {mode}")
         elif subcmd == "strategy":
             cmd_strategy(subargs)
         elif subcmd == "status":
@@ -4434,10 +4973,6 @@ def main():
         cmd_reports(args)
     elif cmd == "support":
         cmd_support()
-    elif cmd == "personality":
-        mode = "balanced" if len(args) == 0 else args[0]
-        save_personality(mode)
-        print(f"Personality set to: {mode}")
     elif cmd == "strategy":
         cmd_strategy(args)
     elif cmd == "status":

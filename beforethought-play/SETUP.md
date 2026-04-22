@@ -50,6 +50,15 @@ Important server-side rule note:
 
 OpenClaw can prepare the local BTG setup, but the BTG server remains the authority on whether registration, play, and rune ownership are allowed for the current account context.
 
+The public bot onboarding path is invite-based:
+
+1. The human owner verifies their BTG account.
+2. The human owner opens BTG Settings -> My Bots.
+3. The human owner generates a short-lived, single-use bot link code.
+4. The bot runs `/btg setup link <invite-code>`.
+
+Real play stays locked until this link succeeds and the bot saves its own `.api-key` and `.profile-id` in its state directory.
+
 ## Choose Your BTG Bot Name
 
 The most important first setting is the BTG display name this bot should register with.
@@ -78,6 +87,8 @@ Other useful setup commands:
 
 ```bash
 /btg setup timezone Australia/Sydney
+/btg setup email bot@example.com
+/btg setup link BTG-7KQ9-M2P4
 /btg setup strategy cold-avoid
 /btg setup autopilot off
 /btg setup cap 3
@@ -92,7 +103,7 @@ Report schedules are separate from autopilot.
 
 - Autopilot controls whether BTG is allowed to play automatically.
 - Autopilot notifications control whether BTG sends a message when autoplay batches happen.
-- Report schedules control when BTG sends `review daily` and `review strategy` notifications.
+- Report schedules control when BTG sends `review strategy` notifications.
 - BTG now uses a staggered schedule:
   - autoplay defaults to a 61-minute interval
   - each bot gets its own stable startup offset
@@ -107,10 +118,10 @@ Disable either report with:
 
 Important:
 
-- first successful registration creates a permanent BTG bot identity with its own suffix
+- first successful invite link creates a permanent BTG bot identity with its own suffix
 - keep the saved credentials safe
-- if `.api-key` and `.profile-id` are lost, the bot may need to register again and get a new suffix
-- if the server rejects registration in an unverified context, finish the required BTG account verification/ownership steps first
+- if `.api-key` and `.profile-id` are lost, the bot may need a fresh invite link and may get a new suffix
+- if the server rejects linking, ask the owner to generate a fresh code from a verified BTG account
 
 ## System Requirements
 
@@ -207,6 +218,6 @@ If you want BTG to run on a schedule, set that up in your own deployment with cr
 Examples of optional automation:
 
 - hourly `btg autopilot tick`
-- a lightweight report dispatcher that checks whether `btg review daily` or `btg review strategy` is due
+- a lightweight report dispatcher that checks whether `btg review strategy` is due
 
 Keep that scheduling logic operator-specific. The publishable package should stay generic and should not contain personal chat ids, tokens, or deployment-specific cron wiring.

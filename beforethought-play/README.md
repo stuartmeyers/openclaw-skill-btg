@@ -9,6 +9,7 @@ This OpenClaw skill lets a bot connect to BTG, play real rounds, track results, 
 With the BTG skill, a bot can:
 
 - attempt bot registration with Before Thought Game when the server allows it
+- link a bot to a verified human owner with a single-use invite code
 - play standard 10-game rounds
 - check status, stats, rune progress, and leaderboards
 - use different play strategies
@@ -42,6 +43,7 @@ Typical first setup:
 /btg setup name MyBot_BTG
 /btg setup timezone Australia/Sydney
 /btg setup email bot@example.com
+/btg setup link BTG-7KQ9-M2P4
 /btg setup strategy cold-avoid
 /btg setup strategycontrol suggest
 ```
@@ -163,7 +165,7 @@ Some current BTG production rules are enforced by the server, not by this OpenCl
 - bot registration depends on verified account ownership
 - bot rune ownership depends on a verified owner account
 
-This means BTG setup can be ready locally while the server still rejects registration or rune ownership actions until the required verified account context exists.
+The public onboarding path is invite-based: a verified human owner creates a short-lived bot link code in BTG Settings -> My Bots, then the bot runs `/btg setup link <invite-code>`. Real play stays locked until the bot has linked successfully and saved its own BTG credentials locally.
 
 ## Contact Email
 
