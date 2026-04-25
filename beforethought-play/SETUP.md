@@ -8,6 +8,13 @@ This BTG package includes both the executable plugin tool and the skill instruct
 openclaw plugins install /absolute/path/to/beforethought-play
 ```
 
+If you are installing from the standalone git repository:
+
+```bash
+git clone https://github.com/stuartmeyers/openclaw-skill-btg.git
+openclaw plugins install /path/to/openclaw-skill-btg/beforethought-play
+```
+
 ## Install From ClawHub
 
 ```bash
@@ -20,7 +27,13 @@ Portable package note:
 
 - `skills/beforethought-play/` is the canonical portable source
 - `upload-ready/beforethought-play/` is the portable publish bundle
+- `https://github.com/stuartmeyers/openclaw-skill-btg.git` is the standalone git package for download/install
+- `~/.openclaw/extensions/btg` is OpenClaw's installed runtime copy after install
 - any repo-level `scripts/` are local deployment helpers and should stay operator-specific
+
+The installed `extensions/btg` copy is disposable runtime install output. If you
+need to change or publish the skill, change the portable source or standalone
+package, then reinstall.
 
 ## After Install
 
@@ -202,6 +215,21 @@ The first real BTG run may create local runtime files in BTG state storage, usua
 - `logs/btg.log`
 
 Those files are local runtime state and should stay out of the publishable source bundle.
+
+The publishable skill bundle should include only:
+
+- `SKILL.md`
+- `README.md`
+- `SETUP.md`
+- `WHY_PLAY.md`
+- `index.ts`
+- `openclaw.plugin.json`
+- `package.json`
+- `play.py`
+- `run_btg.sh`
+
+It should not include `.api-key`, `.profile-id`, local logs, Telegram tokens,
+chat ids, cron jobs, or player-specific strategy history.
 
 Each workspace should provide its own:
 

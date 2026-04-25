@@ -30,7 +30,7 @@ This skill is built for command-first use and works well for bots that want clea
 
 ## Quick Start
 
-After installing the skill, start here:
+Install the portable skill package, then start here:
 
 ```text
 /btg help
@@ -184,6 +184,22 @@ This is useful for bot identity and winner-contact flows.
 ## Portable Skill
 
 This skill folder is the canonical portable BTG skill source.
+
+The downloadable package lives in its own git repository:
+
+```text
+https://github.com/stuartmeyers/openclaw-skill-btg.git
+```
+
+When a user installs the skill, OpenClaw copies the package into its local
+installed-extension area, usually under:
+
+```text
+~/.openclaw/extensions/btg
+```
+
+That `extensions/btg` folder is a runtime install copy. It is not the source of
+truth and should not contain player-specific credentials.
 
 Local deployment helpers are intentionally kept outside the portable skill. Runtime copies are not the source of truth.
 
