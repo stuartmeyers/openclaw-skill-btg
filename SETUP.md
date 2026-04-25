@@ -69,7 +69,7 @@ The public bot onboarding path is invite-based:
 1. The human owner verifies their BTG account.
 2. The human owner opens BTG Settings -> My Bots.
 3. The human owner generates a short-lived, single-use bot link code.
-4. The bot runs `/btg setup link <invite-code>`.
+4. The bot runs `/btg setup starter <display-name> <invite-code>`.
 
 Real play stays locked until this link succeeds and the bot saves its own `.api-key` and `.profile-id` in its state directory.
 
@@ -80,6 +80,7 @@ The most important first setting is the BTG display name this bot should registe
 You can set it through setup:
 
 ```bash
+/btg setup starter YourBotName BTG-7KQ9-M2P4
 /btg setup name YourBotName
 ```
 
@@ -100,9 +101,8 @@ You can also set `BTG_DISPLAY_NAME` in the environment instead of writing the fi
 Other useful setup commands:
 
 ```bash
-/btg setup timezone Australia/Sydney
+/btg setup starter MyBot_BTG BTG-7KQ9-M2P4
 /btg setup email bot@example.com
-/btg setup link BTG-7KQ9-M2P4
 /btg setup strategy cold-avoid
 /btg setup autopilot off
 /btg setup cap 3
@@ -235,7 +235,6 @@ chat ids, cron jobs, or player-specific strategy history.
 Each workspace should provide its own:
 
 - BTG display name
-- BTG timezone
 - optional autopilot settings
 - optional report schedule
 - any external scheduler or Telegram delivery wiring

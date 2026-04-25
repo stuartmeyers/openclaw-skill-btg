@@ -516,6 +516,29 @@ def cmd_setup(args):
         print(f"BTG display name set to: {display_name}")
         return
 
+    if action == "starter":
+        if len(args) < 3:
+            print("Usage: btg setup starter <display-name> <invite-code>", file=sys.stderr)
+            sys.exit(1)
+        invite_code = args[-1].strip()
+        display_name = " ".join(args[1:-1]).strip()
+        if not display_name:
+            print("Display name cannot be empty.", file=sys.stderr)
+            sys.exit(1)
+        if not invite_code:
+            print("Invite code cannot be empty.", file=sys.stderr)
+            sys.exit(1)
+        save_display_name(display_name)
+        print(f"BTG display name set to: {display_name}")
+        result = link_bot_with_invite(invite_code)
+        if result.get("ok"):
+            print(format_link_success_message(result))
+        else:
+            print("Display name was saved, but bot linking failed.", file=sys.stderr)
+            print(format_link_failure_message(result), file=sys.stderr)
+            sys.exit(1)
+        return
+
     if action == "email":
         if len(args) == 1:
             setup_api_key = load_api_key_for_setup_email()
@@ -669,7 +692,7 @@ def cmd_setup(args):
         print("Usage: btg setup autopilotnotify <off|every [n]>", file=sys.stderr)
         sys.exit(1)
 
-    print("Usage: btg setup [show|name <display-name>|email [<address>|clear]|timezone <Area/City>|link <invite-code>|strategy <mode>|strategycontrol <suggest|auto-daily|auto-weekly>|autopilot <on|off>|cap <rounds-per-day>|interval <minutes>|autopilotnotify <off|every [n]>]", file=sys.stderr)
+    print("Usage: btg setup [show|starter <display-name> <invite-code>|name <display-name>|email [<address>|clear]|timezone <Area/City>|link <invite-code>|strategy <mode>|strategycontrol <suggest|auto-daily|auto-weekly>|autopilot <on|off>|cap <rounds-per-day>|interval <minutes>|autopilotnotify <off|every [n]>]", file=sys.stderr)
     sys.exit(1)
 
 def store_bot_credentials(api_key, profile_id):
@@ -4035,10 +4058,10 @@ def cmd_help_examples():
     print()
     print("SETUP")
     print_help_entry("/btg setup", "Show the current BTG setup")
+    print_help_entry("/btg setup starter MyBot_BTG BTG-7KQ9-M2P4", "Set bot name and link with an owner invite code")
     print_help_entry("/btg setup name MyBot_BTG", "Set the BTG display name")
     print_help_entry("/btg setup email bot@example.com", "Set the contact email")
     print_help_entry("/btg setup email clear", "Clear the contact email")
-    print_help_entry("/btg setup timezone Australia/Sydney", "Set the BTG timezone")
     print_help_entry("/btg setup link BTG-7KQ9-M2P4", "Link with an owner invite code")
     print_help_entry("/btg setup strategy cold-avoid", "Set the default strategy")
     print_help_entry("/btg setup strategycontrol auto-daily", "Set the strategy control mode")
@@ -4102,11 +4125,11 @@ def cmd_help(args=None):
     print("SETUP")
     print("Configure BTG identity and defaults.")
     print_help_entry("/btg setup", "Show the current BTG setup")
+    print_help_entry("/btg setup starter <display-name> <invite-code>", "Set bot name and link with an owner invite code")
     print_help_entry("/btg setup name <display-name>", "Set the BTG display name")
     print_help_entry("/btg setup email", "Show the contact email")
     print_help_entry("/btg setup email <address>", "Set the contact email")
     print_help_entry("/btg setup email clear", "Clear the contact email")
-    print_help_entry("/btg setup timezone <Area/City>", "Set the BTG timezone")
     print_help_entry("/btg setup link <invite-code>", "Link with an owner invite code")
     print_help_entry("/btg setup strategy <mode>", "Set the default strategy")
     print_help_entry("/btg setup strategycontrol <mode>", "Set the strategy control mode")

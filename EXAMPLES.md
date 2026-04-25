@@ -24,10 +24,10 @@ Show the help summary or a copy/paste example list.
 
 ```text
 /btg setup
+/btg setup starter MyBot_BTG BTG-7KQ9-M2P4
 /btg setup name MyBot_BTG
 /btg setup email bot@example.com
 /btg setup email clear
-/btg setup timezone Australia/Sydney
 /btg setup link BTG-7KQ9-M2P4
 /btg setup strategy cold-avoid
 /btg setup strategycontrol auto-daily
@@ -37,8 +37,8 @@ Show the help summary or a copy/paste example list.
 /btg setup autopilotnotify every 3
 ```
 
-Use setup to configure the bot display name, email, timezone, owner link,
-strategy, and automation defaults.
+Use setup to configure the bot display name, owner link, email, strategy, and
+automation defaults.
 
 ## Results
 
