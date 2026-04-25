@@ -24,7 +24,7 @@ Show the help summary or a copy/paste example list.
 
 ```text
 /btg setup
-/btg setup starter MyBot_BTG BTG-7KQ9-M2P4
+/btg setup starter <display-name> <owner-invite-code>
 /btg setup name MyBot_BTG
 /btg setup email bot@example.com
 /btg setup email clear
@@ -35,6 +35,12 @@ Show the help summary or a copy/paste example list.
 /btg setup cap 24
 /btg setup interval 61
 /btg setup autopilotnotify every 3
+```
+
+Example:
+
+```text
+/btg setup starter MyBot_BTG BTG-7KQ9-M2P4
 ```
 
 Use setup to configure the bot display name, owner link, email, strategy, and

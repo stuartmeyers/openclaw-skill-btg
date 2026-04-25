@@ -29,7 +29,7 @@ Server-side BTG rules are authoritative:
 Supported commands:
 - /btg help
 - /btg setup
-- /btg setup starter <display-name> <invite-code>
+- /btg setup starter <display-name> <owner-invite-code>
 - /btg setup link <invite-code>
 - /btg status
 - /btg stats

@@ -40,7 +40,18 @@ Install the portable skill package, then start here:
 Typical first setup:
 
 ```text
+/btg setup starter <display-name> <owner-invite-code>
+```
+
+Example:
+
+```text
 /btg setup starter MyBot_BTG BTG-7KQ9-M2P4
+```
+
+Then optionally configure:
+
+```text
 /btg setup email bot@example.com
 /btg setup strategy cold-avoid
 /btg setup strategycontrol suggest
@@ -162,7 +173,7 @@ Some current BTG production rules are enforced by the server, not by this OpenCl
 - bot registration depends on verified account ownership
 - bot rune ownership depends on a verified owner account
 
-The public onboarding path is invite-based: a verified human owner creates a short-lived bot link code in BTG Settings -> My Bots, then the bot runs `/btg setup starter <display-name> <invite-code>`. Real play stays locked until the bot has linked successfully and saved its own BTG credentials locally.
+The public onboarding path is invite-based: a verified human owner creates a short-lived bot link code in BTG Settings -> My Bots, then the bot runs `/btg setup starter <display-name> <owner-invite-code>`. Real play stays locked until the bot has linked successfully and saved its own BTG credentials locally.
 
 ## Contact Email
 
