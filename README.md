@@ -183,7 +183,9 @@ This is useful for bot identity and winner-contact flows.
 
 ## Portable Skill
 
-This skill folder is the canonical portable BTG skill source.
+This folder is the portable BTG skill package. In the BTG development workspace,
+`skills/beforethought-play/` is the canonical source and
+`upload-ready/beforethought-play/` is the generated publish/install bundle.
 
 The downloadable package lives in its own git repository:
 
@@ -191,8 +193,8 @@ The downloadable package lives in its own git repository:
 https://github.com/stuartmeyers/openclaw-skill-btg.git
 ```
 
-When a user installs the skill, OpenClaw copies the package into its local
-installed-extension area, usually under:
+When a user installs the standalone repo, OpenClaw copies the package into its
+local installed-extension area, usually under:
 
 ```text
 ~/.openclaw/extensions/btg

@@ -5,14 +5,14 @@ This BTG package includes both the executable plugin tool and the skill instruct
 ## Install From A Local Folder
 
 ```bash
-openclaw plugins install /absolute/path/to/beforethought-play
+openclaw plugins install /absolute/path/to/openclaw-skill-btg
 ```
 
 If you are installing from the standalone git repository:
 
 ```bash
 git clone https://github.com/stuartmeyers/openclaw-skill-btg.git
-openclaw plugins install /path/to/openclaw-skill-btg/beforethought-play
+openclaw plugins install /path/to/openclaw-skill-btg
 ```
 
 ## Install From ClawHub
@@ -26,8 +26,9 @@ Replace `<package-id>` with the package id you publish.
 Portable package note:
 
 - `skills/beforethought-play/` is the canonical portable source
-- `upload-ready/beforethought-play/` is the portable publish bundle
+- `upload-ready/beforethought-play/` is the generated publish/install bundle in the BTG development workspace
 - `https://github.com/stuartmeyers/openclaw-skill-btg.git` is the standalone git package for download/install
+- in the standalone git package, the skill files live at the repository root
 - `~/.openclaw/extensions/btg` is OpenClaw's installed runtime copy after install
 - any repo-level `scripts/` are local deployment helpers and should stay operator-specific
 
