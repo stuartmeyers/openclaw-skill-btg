@@ -2635,24 +2635,46 @@ def describe_strategy_data_quality(current_run_summary, current_historical_summa
         and current_historical_summary.get("games", 0) > current_run_summary.get("games", 0)
         and current_historical_summary.get("rounds", 0) >= current_run_summary.get("rounds", 0)
     )
+    current_games = current_run_summary.get("games", 0)
+    current_rounds = current_run_summary.get("rounds", 0)
+    if current_games >= 30 and current_rounds >= 3:
+        sample_note = "useful current-run sample"
+    elif current_games > 0:
+        sample_note = "early current-run sample"
+    else:
+        sample_note = "no current-run sample yet"
 
     if not has_current_run and proven_count == 0:
         return "weak", "no current run and no proven strategy yet", has_older_baseline
     if has_current_run and not has_older_baseline:
-        return "moderate", "one run only, no older baseline yet", has_older_baseline
+        return (
+            "moderate",
+            f"{current_games} games across {current_rounds} rounds; {sample_note}, but only one tracked strategy period",
+            has_older_baseline,
+        )
     if proven_count >= 3 and best_proven_metric and best_proven_metric.get("games", 0) >= 100:
-        return "strong", "at least 3 proven strategies and best proven has 100+ games", has_older_baseline
+        return (
+            "strong",
+            f"{current_games} games across {current_rounds} current-run rounds; previous tracked strategy period exists, and at least 3 strategies are proven",
+            has_older_baseline,
+        )
     if proven_count >= 1:
-        return "moderate", "at least one strategy has 30+ games across 3+ rounds", has_older_baseline
+        return (
+            "moderate",
+            f"{current_games} games across {current_rounds} current-run rounds; previous tracked strategy period exists, and at least one strategy is proven",
+            has_older_baseline,
+        )
     return "weak", "no strategy has reached 30 games across 3 rounds yet", has_older_baseline
 
 
-def compare_metric_line(label, current_metric, best_metric, key):
+def compare_metric_line(label, current_metric, best_metric, key, best_mode=None):
     if not best_metric:
         return f"- {label}: not enough proven data yet"
     current_value = current_metric.get(key)
     best_value = best_metric.get(key)
     if current_value is None or best_value is None:
+        if key == "medianScore" and best_mode:
+            return f"- {label}: not available for {best_mode} because older median tracking was not recorded yet"
         return f"- {label}: not recorded yet"
     return f"- {label}: {current_value} vs {best_value}"
 
@@ -2666,7 +2688,7 @@ def format_stage_reach_line(label, metric):
     reach = metric.get("stageReachCounts", {}) if isinstance(metric, dict) else {}
     depth = metric.get("depthCounts", {}) if isinstance(metric, dict) else {}
     if not any(safe_int(reach.get(str(level), 0), 0) for level in range(1, 8)):
-        return f"- {label}: stage-depth evidence not recorded yet"
+        return f"- {label}: not available because older stage-depth tracking was not recorded yet"
     reach_text = ", ".join(f"{level}+={safe_int(reach.get(str(level), 0), 0)}" for level in range(1, 8))
     return (
         f"- {label}: {reach_text}; "
@@ -2825,7 +2847,7 @@ def should_offer_strategy_exploration(current_strategy, current_metric, best_pro
     if clearly_behind:
         return True, "current strategy is clearly behind the best proven strategy"
     if stale_recent:
-        return True, "recent 10-round window looks stale against the all-time current strategy record"
+        return True, "recent 10-round window looks stale against the current strategy tracked history"
     return False, "no exploration trigger met"
 
 
@@ -2989,6 +3011,7 @@ def build_strategy_review_lines(api_key, profile_id):
     lines = [
         f"- Current strategy: {current_strategy}",
         f"- Data quality: {data_quality} ({data_quality_reason})",
+        "- Evidence scope: local strategy evidence recorded by this bot only; it may cover only data since tracking began, not every historical game played on the BTG server",
         "- Proven rule: a strategy needs at least 30 games across 3 rounds to count as proven",
         f"- Best proven strategy: {best_proven_label}",
     ]
@@ -3002,22 +3025,24 @@ def build_strategy_review_lines(api_key, profile_id):
 
     if current_historical_summary["games"] > 0:
         lines.append(
-            f"- Current strategy all-time: {current_historical_summary['games']} games across {current_historical_summary['rounds']} rounds, average {current_historical_summary['averageScore']}, median {strategy_metric_value(current_historical_summary, 'medianScore')}, peak {current_historical_summary['highestScore']}, top 5 average {current_historical_summary['topFiveAverage']}"
+            f"- Current strategy tracked history: {current_historical_summary['games']} games across {current_historical_summary['rounds']} rounds, average {current_historical_summary['averageScore']}, median {strategy_metric_value(current_historical_summary, 'medianScore')}, peak {current_historical_summary['highestScore']}, top 5 average {current_historical_summary['topFiveAverage']}"
         )
     else:
-        lines.append("- Current strategy all-time: no local history yet")
+        lines.append("- Current strategy tracked history: no local tracked history yet")
 
     if current_run_summary["games"] > 0 and not has_older_baseline:
-        lines.append("- Current strategy baseline: no older baseline yet; this current run is the only local sample")
+        lines.append(
+            f"- Current strategy baseline: same as current strategy tracked history; no previous tracked {current_strategy} period exists yet"
+        )
     elif has_older_baseline:
         lines.append(
-            "- Current strategy baseline: older baseline exists in all-time local history"
+            f"- Current strategy baseline: previous tracked {current_strategy} period exists in local history"
         )
 
     lines.append(compare_metric_line("Current vs best proven average", current_historical_summary, best_proven_metric, "averageScore"))
     lines.append(compare_metric_line("Current vs best proven peak", current_historical_summary, best_proven_metric, "highestScore"))
     lines.append(compare_metric_line("Current vs best proven top 5 average", current_historical_summary, best_proven_metric, "topFiveAverage"))
-    lines.append(compare_metric_line("Current vs best proven median", current_historical_summary, best_proven_metric, "medianScore"))
+    lines.append(compare_metric_line("Median comparison", current_historical_summary, best_proven_metric, "medianScore", best_proven_mode))
 
     if current_historical_summary["recent100Games"] > 0:
         lines.append(
