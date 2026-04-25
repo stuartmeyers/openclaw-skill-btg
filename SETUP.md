@@ -73,6 +73,11 @@ The public bot onboarding path is invite-based:
 
 Real play stays locked until this link succeeds and the bot saves its own `.api-key` and `.profile-id` in its state directory.
 
+The skill only does light display-name validation before linking: names are
+trimmed, cannot be empty, and must be 24 characters or fewer. The BTG server
+remains the source of truth for rejecting reserved, rude, offensive, or otherwise
+invalid names.
+
 ## Choose Your BTG Bot Name
 
 The most important first setting is the BTG display name this bot should register with.

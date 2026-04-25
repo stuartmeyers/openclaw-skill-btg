@@ -47,6 +47,7 @@ DEFAULT_REPORTS_CONFIG = {
     },
     "deliveryOffsetMinutes": None,
 }
+DISPLAY_NAME_MAX_LENGTH = 24
 STRATEGY_TRIAL_SWITCH_TIME = "20:00"
 STRATEGY_TRIAL_STRATEGIES = [
     "random",
@@ -161,12 +162,40 @@ def migrate_legacy_state():
     # Fresh installs and BTG2-style workspaces must start from explicit setup
     # in the state directory rather than hidden files bundled in a dev copy.
 
+def redact_sensitive_text(value, redact_profile_id=False):
+    text = str(value)
+
+    def mask_invite(match):
+        parts = match.group(0).split("-")
+        return "-".join(["BTG", *["****"] * (len(parts) - 2), parts[-1]])
+
+    text = re.sub(r"\bBTG(?:-[A-Za-z0-9]{4}){2,}\b", mask_invite, text)
+    text = re.sub(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+", "Bearer <redacted>", text)
+    text = re.sub(
+        r"(?i)\b(apiKey|api_key|profileToken|profile_token)\b\s*[:=]\s*['\"]?[A-Za-z0-9._~+/=-]+",
+        lambda match: f"{match.group(1)}=<redacted>",
+        text,
+    )
+    if redact_profile_id:
+        text = re.sub(
+            r"(?i)\b(profileId|profile_id)\b\s*[:=]\s*['\"]?[A-Za-z0-9._:-]+",
+            lambda match: f"{match.group(1)}=<redacted>",
+            text,
+        )
+        text = re.sub(
+            r"(?i)\bprofile\s+[0-9a-f]{8}-[0-9a-f-]{27,36}\b",
+            "profile <redacted>",
+            text,
+        )
+    return text
+
+
 def log_event(message):
     try:
         os.makedirs(LOG_DIR, exist_ok=True)
         with open(LOG_FILE, "a", encoding="utf-8") as f:
             ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            f.write(f"[{ts}] {message}\n")
+            f.write(f"[{ts}] {redact_sensitive_text(message, redact_profile_id=True)}\n")
     except Exception:
         pass
 
@@ -231,6 +260,17 @@ def save_display_name(display_name):
     with open(DISPLAY_NAME_FILE, "w", encoding="utf-8") as f:
         f.write(display_name.strip())
     os.chmod(DISPLAY_NAME_FILE, 0o600)
+
+
+def clean_display_name_or_exit(raw_display_name):
+    display_name = raw_display_name.strip()
+    if not display_name:
+        print("Display name cannot be empty.", file=sys.stderr)
+        sys.exit(1)
+    if len(display_name) > DISPLAY_NAME_MAX_LENGTH:
+        print(f"Display name is too long. Use {DISPLAY_NAME_MAX_LENGTH} characters or fewer.", file=sys.stderr)
+        sys.exit(1)
+    return display_name
 
 
 def load_local_contact_email():
@@ -508,23 +548,17 @@ def cmd_setup(args):
         if len(args) < 2:
             print("Usage: btg setup name <display-name>", file=sys.stderr)
             sys.exit(1)
-        display_name = " ".join(args[1:]).strip()
-        if not display_name:
-            print("Display name cannot be empty.", file=sys.stderr)
-            sys.exit(1)
+        display_name = clean_display_name_or_exit(" ".join(args[1:]))
         save_display_name(display_name)
         print(f"BTG display name set to: {display_name}")
         return
 
     if action == "starter":
         if len(args) < 3:
-            print("Usage: btg setup starter <display-name> <invite-code>", file=sys.stderr)
+            print("Usage: /btg setup starter <display-name> <owner-invite-code>", file=sys.stderr)
             sys.exit(1)
         invite_code = args[-1].strip()
-        display_name = " ".join(args[1:-1]).strip()
-        if not display_name:
-            print("Display name cannot be empty.", file=sys.stderr)
-            sys.exit(1)
+        display_name = clean_display_name_or_exit(" ".join(args[1:-1]))
         if not invite_code:
             print("Invite code cannot be empty.", file=sys.stderr)
             sys.exit(1)
@@ -692,7 +726,7 @@ def cmd_setup(args):
         print("Usage: btg setup autopilotnotify <off|every [n]>", file=sys.stderr)
         sys.exit(1)
 
-    print("Usage: btg setup [show|starter <display-name> <invite-code>|name <display-name>|email [<address>|clear]|timezone <Area/City>|link <invite-code>|strategy <mode>|strategycontrol <suggest|auto-daily|auto-weekly>|autopilot <on|off>|cap <rounds-per-day>|interval <minutes>|autopilotnotify <off|every [n]>]", file=sys.stderr)
+    print("Usage: /btg setup [show|starter <display-name> <owner-invite-code>|name <display-name>|email [<address>|clear]|timezone <Area/City>|link <invite-code>|strategy <mode>|strategycontrol <suggest|auto-daily|auto-weekly>|autopilot <on|off>|cap <rounds-per-day>|interval <minutes>|autopilotnotify <off|every [n]>]", file=sys.stderr)
     sys.exit(1)
 
 def store_bot_credentials(api_key, profile_id):
@@ -3639,12 +3673,10 @@ def format_link_success_message(result):
     display_suffix = identity.get("displaySuffix") or registration.get("displaySuffix")
     if not full_name and display_name:
         full_name = f"{display_name}#{display_suffix}" if display_suffix else display_name
-    if not full_name:
-        full_name = f"profile {result.get('profileId')}"
 
     lines = [
         "BTG link complete.",
-        f"Bot profile: {full_name}",
+        f"Bot profile: {full_name if full_name else 'Bot linked successfully.'}",
         "Linked to BTG owner: yes",
         "BTG credentials saved locally.",
         "This bot can now play as its own BTG profile.",
@@ -3674,15 +3706,20 @@ def format_link_failure_message(result):
         error = result.get("error")
 
     if error == "already_linked":
-        return message
+        return redact_sensitive_text(message or "This bot is already linked.", redact_profile_id=True)
     if error == "missing_invite":
         return "Could not link this bot.\nA bot link code is required.\nRun: btg setup link <invite-code>"
     if error == "rate_limited":
-        return f"Could not link this bot.\n{message or 'Too many bot registration attempts. Please try again later.'}"
+        detail = redact_sensitive_text(message or "Too many bot registration attempts. Please try again later.", redact_profile_id=True)
+        return f"Could not link this bot.\n{detail}"
     if error in ["network", "timeout", "request_failed"]:
-        return f"Could not link this bot.\nBTG registration request failed: {message or error}."
+        detail = redact_sensitive_text(message or error, redact_profile_id=True)
+        return f"Could not link this bot.\nBTG registration request failed: {detail}."
 
-    clean_message = message or "The invite code is invalid, expired, or already used."
+    clean_message = redact_sensitive_text(
+        message or "The invite code is invalid, expired, or already used.",
+        redact_profile_id=True,
+    )
     if "invalid" in clean_message.lower() and "already used" in clean_message.lower():
         return (
             "Could not link this bot.\n"

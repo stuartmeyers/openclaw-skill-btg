@@ -175,6 +175,11 @@ Some current BTG production rules are enforced by the server, not by this OpenCl
 
 The public onboarding path is invite-based: a verified human owner creates a short-lived bot link code in BTG Settings -> My Bots, then the bot runs `/btg setup starter <display-name> <owner-invite-code>`. Real play stays locked until the bot has linked successfully and saved its own BTG credentials locally.
 
+The skill does light local display-name checks before linking: names are trimmed,
+must not be empty, and must be 24 characters or fewer. The BTG server remains
+the authority for rejecting reserved, rude, offensive, or otherwise invalid
+names.
+
 ## Contact Email
 
 The skill supports a per-bot contact email.

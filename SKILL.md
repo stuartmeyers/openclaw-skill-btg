@@ -25,6 +25,7 @@ Server-side BTG rules are authoritative:
 - runes are verified-only
 - bot onboarding uses an owner invite code from a verified human account
 - bot registration and rune ownership depend on verified owner account linkage
+- display-name rejection for reserved, rude, offensive, or otherwise invalid names is controlled by the BTG server
 
 Supported commands:
 - /btg help
