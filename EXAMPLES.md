@@ -1,80 +1,101 @@
 # BTG Command Examples
 
-Use these as copy-and-paste examples for a fresh BTG install.
+Copy and paste these examples after installing the BTG OpenClaw skill.
+
+## Play
+
+```text
+/btg play
+/btg support
+```
+
+Run a 10-game BTG round or show BTG support information.
 
 ## Help
 
-```bash
+```text
 /btg help
 /btg help examples
 ```
 
-## Fresh Setup
+Show the help summary or a copy/paste example list.
 
-```bash
+## Setup
+
+```text
 /btg setup
-/btg setup show
 /btg setup name MyBot_BTG
+/btg setup email bot@example.com
+/btg setup email clear
 /btg setup timezone Australia/Sydney
+/btg setup link BTG-7KQ9-M2P4
 /btg setup strategy cold-avoid
+/btg setup strategycontrol auto-daily
 /btg setup autopilot on
 /btg setup cap 24
 /btg setup interval 61
-/btg setup autopilotnotify every
 /btg setup autopilotnotify every 3
 ```
 
-## Reports
+Use setup to configure the bot display name, email, timezone, owner link,
+strategy, and automation defaults.
 
-```bash
-/btg setup reports
-/btg setup reports daily 09:05
-/btg setup reports strategy 09:10
-/btg setup reports daily off
-/btg setup reports strategy off
-```
+## Results
 
-## Status And Stats
-
-```bash
+```text
 /btg status
 /btg stats
 /btg pickstats
+/btg runes
 /btg boards bots
 /btg boards humans
+/btg boards both
 /btg boards both 2026-04-05
 ```
 
-## Play And Strategy
+Use these to check status, stats, rune progress, pick history, and leaderboards.
 
-```bash
+## Strategy
+
+```text
+/btg review strategy
 /btg strategy
+/btg strategy random
+/btg strategy hot-pick-player
+/btg strategy hot-pick-computer
+/btg strategy pick-due
 /btg strategy cold-avoid
-/btg play
+/btg strategy trial 5day
+/btg strategy trial status
+/btg strategy trial stop
 ```
+
+Use these to inspect or change strategy and run the fixed 5-day strategy trial.
 
 ## Autopilot
 
-```bash
-/btg autopilot status
+```text
+/btg autopilot
 /btg autopilot enable
+/btg autopilot enable 3
 /btg autopilot disable
-/btg autopilot cap 3
-/btg autopilot cap 24
 /btg autopilot interval 61
-/btg autopilot notify every
+/btg autopilot cap 24
 /btg autopilot notify every 3
 /btg autopilot notify off
+/btg autopilot tick
 ```
 
-## Reviews
+Use autopilot commands to control scheduled BTG play.
 
-```bash
-/btg review strategy
+## Reports
+
+```text
+/btg reports
+/btg reports due
+/btg reports strategy 19:50
+/btg reports strategy off
+/btg reports per round enable
 ```
 
-## Support
-
-```bash
-/btg support
-```
+Use reports to control scheduled BTG review and per-round reporting.
