@@ -527,8 +527,11 @@ def print_setup_status():
         print("Missing required setup: display name")
         print("Next step: btg setup name <YourBotName>")
     elif not has_identity:
+        starter_display_name = display_name if display_name else "<display-name>"
         print("Setup is ready for owner linking.")
-        print("Next step: btg setup link <invite-code>")
+        print("Recommended next step:")
+        print(f"/btg setup starter {starter_display_name} <owner-invite-code>")
+        print("Manual fallback after display name setup: /btg setup link <owner-invite-code>")
     else:
         print("Setup looks complete.")
 

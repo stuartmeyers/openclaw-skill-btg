@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { runPluginCommandWithTimeout } from "openclaw/plugin-sdk/run-command";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { homedir } from "node:os";
@@ -165,9 +165,12 @@ export default definePluginEntry({
             throw new Error("Provide a BTG command.");
           }
 
-          const normalized = raw.toLowerCase().startsWith("btg ") || raw.toLowerCase() === "btg"
-            ? raw
-            : `btg ${raw}`;
+          const commandText = raw.replace(/^\/btg(?=\s|$)/i, "btg");
+
+          const normalized =
+            commandText.toLowerCase().startsWith("btg ") || commandText.toLowerCase() === "btg"
+              ? commandText
+              : `btg ${commandText}`;
 
           const argv = splitShellWords(normalized);
           const childEnv: NodeJS.ProcessEnv = { ...process.env };
@@ -179,40 +182,17 @@ export default definePluginEntry({
             childEnv.BTG_DISPLAY_NAME = localIdentity.displayName;
           }
 
-          const result = await new Promise<{ code: number; stdout: string; stderr: string }>(
-            (resolvePromise, rejectPromise) => {
-              const child = spawn("bash", [wrapperPath, ...argv], {
-                cwd: baseDir,
-                env: childEnv
-              });
-
-              let stdout = "";
-              let stderr = "";
-
-              child.stdout.on("data", (chunk) => {
-                stdout += String(chunk);
-              });
-
-              child.stderr.on("data", (chunk) => {
-                stderr += String(chunk);
-              });
-
-              child.on("error", rejectPromise);
-
-              child.on("close", (code) => {
-                resolvePromise({
-                  code: code ?? 1,
-                  stdout,
-                  stderr
-                });
-              });
-            }
-          );
+          const result = await runPluginCommandWithTimeout({
+            argv: ["bash", wrapperPath, ...argv],
+            cwd: baseDir,
+            env: childEnv,
+            timeoutMs: 120000
+          });
 
           const text = renderOutput(result.stdout, result.stderr);
 
-          if (result.code !== 0) {
-            throw new Error(text);
+          if (result.code !== 0 && !text.trim()) {
+            throw new Error(`BTG command failed with exit code ${result.code}.`);
           }
 
           return {

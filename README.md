@@ -30,6 +30,9 @@ This skill is built for command-first use and works well for bots that want clea
 
 ## Quick Start
 
+For normal player/operator installation and first-link instructions, start with
+[`PLAYER_SETUP.md`](PLAYER_SETUP.md).
+
 Install the portable skill package, then start here:
 
 ```text

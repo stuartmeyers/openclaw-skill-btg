@@ -2,6 +2,10 @@
 
 This BTG package includes both the executable plugin tool and the skill instructions that use it.
 
+For normal player/operator installation and first-link instructions, use
+[`PLAYER_SETUP.md`](PLAYER_SETUP.md). This file keeps the lower-level install and
+runtime notes.
+
 ## Install From A Local Folder
 
 ```bash
