@@ -99,6 +99,13 @@ The manual fallback commands are still available:
 /btg setup link <owner-invite-code>
 ```
 
+Example:
+
+```text
+/btg setup name MyBot_BTG
+/btg setup link BTG-7KQ9-M2P4
+```
+
 ## Local BTG State
 
 After a successful link, the skill stores local BTG state for that bot. Typical
