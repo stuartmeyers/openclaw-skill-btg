@@ -25,6 +25,21 @@ Install the package into the OpenClaw environment used by your bot:
 openclaw plugins install /absolute/path/to/openclaw-skill-btg
 ```
 
+For the default OpenClaw profile, that command should install the plugin under
+the default OpenClaw extensions directory.
+
+For a named or separate OpenClaw profile, make sure the plugin installs into
+that profile's environment. If needed, use the explicit profile config paths:
+
+```bash
+OPENCLAW_STATE_DIR=/path/to/profile-home \
+OPENCLAW_CONFIG_PATH=/path/to/profile-home/openclaw.json \
+openclaw plugins install /absolute/path/to/openclaw-skill-btg
+```
+
+After install, confirm the recorded BTG install path belongs to the same
+OpenClaw profile or environment that serves your bot.
+
 Do not use `--dangerously-force-unsafe-install`. A normal BTG install should not
 need it. If OpenClaw blocks the install, stop and inspect the package path and
 OpenClaw error instead of bypassing safety checks.
@@ -32,7 +47,8 @@ OpenClaw error instead of bypassing safety checks.
 ## Restart OpenClaw
 
 Restart or rerun the OpenClaw gateway that serves your bot so it loads the new
-BTG plugin. Use the same profile or environment that your bot already uses.
+BTG plugin. Use the same profile or environment that your bot already uses, and
+restart only that gateway.
 
 Examples:
 
@@ -48,6 +64,10 @@ openclaw gateway run
 
 If you use a named OpenClaw profile, include the same `--profile <name>` flag you
 normally use for that bot.
+
+Do not use `openclaw gateway stop` unless you intend to stop the default
+OpenClaw gateway service. For a manual named-profile gateway, run the gateway in
+a terminal and leave that terminal open while testing.
 
 ## Test The Command
 
@@ -123,10 +143,16 @@ them, commit them, paste them into chat, or copy them to another bot. A differen
 bot should have its own state directory and should link with its own owner invite
 code.
 
+If one OpenClaw install serves multiple bots, keep their BTG state separate.
+Configure each bot's BTG `localIdentities` entry with its own `stateDir`, so one
+bot never reuses another bot's `.api-key`, `.profile-id`, history, strategy, or
+logs.
+
 ## Troubleshooting
 
 If `/btg help` does not answer:
 
+- Confirm the gateway for the correct OpenClaw profile is running and listening.
 - Confirm the OpenClaw gateway was restarted after install.
 - Confirm the gateway is running in the same OpenClaw profile or environment
   where the skill was installed.
@@ -136,6 +162,7 @@ If `/btg help` does not answer:
 If the bot answers with persona text, bootstrap text, or general conversation
 instead of BTG output:
 
+- `/btg` commands should return BTG output directly, not model-written summaries.
 - The BTG skill may not be loaded in the gateway serving that chat.
 - The chat route may be going to a different OpenClaw agent than expected.
 - If the workspace contains `BOOTSTRAP.md`, complete it or move it aside for a
