@@ -1822,6 +1822,53 @@ def format_success_breakdown_for_result(result):
     return f"Where it had success: {' : '.join(parts)}."
 
 
+def batch_has_bonus(results, bonus_key):
+    for result in results:
+        bonuses = result.get("bonuses") if isinstance(result, dict) else None
+        if isinstance(bonuses, dict) and safe_int(bonuses.get(bonus_key), 0) > 0:
+            return True
+    return False
+
+
+def build_play_highlights(
+    batch_best_score,
+    pre_play_best_score,
+    post_alltime_rank,
+    alltime_score_improved,
+    alltime_board_improved,
+    alltime_rank_improved,
+    results,
+):
+    highlights = []
+    if safe_int(batch_best_score, 0) > safe_int(pre_play_best_score, 0):
+        highlights.append(f"New high score: {batch_best_score}")
+
+    alltime_top_ten_improved = (
+        post_alltime_rank is not None and
+        (alltime_score_improved or alltime_board_improved or alltime_rank_improved)
+    )
+    if alltime_top_ten_improved:
+        highlights.append(f"All-time Top 10 score: #{post_alltime_rank} bot leaderboard")
+
+    bonus_highlights = [
+        ("fullHouse", "Full House scored"),
+        ("sixHouse", "Six House scored"),
+        ("fiveHouse", "Five House scored"),
+        ("sixSeven", "Six-Seven scored"),
+    ]
+    for bonus_key, label in bonus_highlights:
+        if batch_has_bonus(results, bonus_key):
+            highlights.append(label)
+
+    return highlights
+
+
+def format_play_highlights(highlights):
+    if not highlights:
+        return []
+    return ["Highlights:"] + [f"• {line}" for line in highlights]
+
+
 def build_autopilot_notification_line(batch_summary, autoplay_batch_count, autopilot_config):
     if not batch_summary:
         return None
@@ -1859,6 +1906,7 @@ def build_autopilot_notification_line(batch_summary, autoplay_batch_count, autop
         else:
             lines.append("Congratulations - you discovered runes!")
         lines.extend(discovered_runes)
+    lines.extend(format_play_highlights(batch_summary.get("highlights")))
     return "\n".join(lines)
 
 
@@ -4640,6 +4688,16 @@ def cmd_play(api_key, profile_id, trigger_source="manual"):
         else:
             print("All-time bot leaderboard impact: No change")
 
+    highlights = build_play_highlights(
+        best,
+        profile_best_score,
+        post_alltime_rank,
+        alltime_score_improved,
+        alltime_board_improved,
+        alltime_rank_improved,
+        results,
+    )
+
     discovered_rune_lines = format_discovered_rune_lines(newly_discovered_runes)
     if discovered_rune_lines:
         print()
@@ -4656,6 +4714,11 @@ def cmd_play(api_key, profile_id, trigger_source="manual"):
 
     for l in lines:
         print(l)
+    highlight_lines = format_play_highlights(highlights)
+    if highlight_lines:
+        print()
+        for line in highlight_lines:
+            print(line)
 
     completed_at = datetime.now(load_bot_tz())
     save_last_play_at(completed_at)
@@ -4683,6 +4746,7 @@ def cmd_play(api_key, profile_id, trigger_source="manual"):
         "strategy": current_strategy,
         "topScoreSuccessBreakdown": format_success_breakdown_for_result(best_result),
         "newRuneDiscoveries": newly_discovered_runes,
+        "highlights": highlights,
         "triggerSource": trigger_source,
     }
 
