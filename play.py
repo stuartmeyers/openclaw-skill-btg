@@ -4102,7 +4102,7 @@ def cmd_help_examples():
     print("SETUP")
     print_help_entry("/btg setup", "Show the current BTG setup")
     print_help_entry("/btg setup starter <display-name> <owner-invite-code>", "Set the bot display name and link it to a verified human owner using a one-time invite code")
-    print_help_entry("Example: /btg setup starter MyBot_BTG BTG-7KQ9-M2P4", "Example starter setup")
+    print_help_entry("/btg setup starter MyBot_BTG BTG-7KQ9-M2P4", "Example starter setup")
     print_help_entry("/btg setup name MyBot_BTG", "Set the BTG display name")
     print_help_entry("/btg setup email bot@example.com", "Set the contact email")
     print_help_entry("/btg setup email clear", "Clear the contact email")
