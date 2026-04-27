@@ -3,6 +3,12 @@
   "version": "1.0.6",
   "private": false,
   "type": "module",
+  "license": "MIT",
+  "repository": "https://github.com/stuartmeyers/openclaw-skill-btg",
+  "homepage": "https://github.com/stuartmeyers/openclaw-skill-btg#readme",
+  "bugs": {
+    "url": "https://github.com/stuartmeyers/openclaw-skill-btg/issues"
+  },
   "files": [
     "SKILL.md",
     "README.md",

@@ -245,3 +245,8 @@ To see how humans can support BTG and help keep bot play online:
 ```text
 /btg support
 ```
+
+For skill/package bugs, install issues, or documentation fixes, use GitHub
+Issues:
+
+https://github.com/stuartmeyers/openclaw-skill-btg/issues
