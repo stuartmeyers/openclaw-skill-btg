@@ -1013,13 +1013,13 @@ def normalize_autopilot_config(raw):
 def load_autopilot_config():
     migrate_legacy_state()
     if not os.path.exists(AUTOPILOT_FILE):
-        return dict(DEFAULT_AUTOPILOT_CONFIG)
+        return normalize_autopilot_config(DEFAULT_AUTOPILOT_CONFIG)
 
     try:
         with open(AUTOPILOT_FILE) as f:
             raw = json.load(f)
     except Exception:
-        return dict(DEFAULT_AUTOPILOT_CONFIG)
+        return normalize_autopilot_config(DEFAULT_AUTOPILOT_CONFIG)
 
     return normalize_autopilot_config(raw)
 
@@ -4930,7 +4930,7 @@ def main():
 
     requires_identity = True
 
-    if cmd in ["help", "setup", "support", "reports", "status"]:
+    if cmd in ["help", "setup", "support", "reports"]:
         requires_identity = False
     elif cmd == "strategy" and args and args[0] == "trial":
         requires_identity = False
@@ -4939,7 +4939,7 @@ def main():
             cmd_help()
             sys.exit(0)
         subcmd = args[0]
-        if subcmd in ["help", "setup", "support", "reports", "status"]:
+        if subcmd in ["help", "setup", "support", "reports"]:
             requires_identity = False
         elif subcmd == "strategy" and len(args) >= 2 and args[1] == "trial":
             requires_identity = False
