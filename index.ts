@@ -126,11 +126,89 @@ function renderOutput(stdout: string, stderr: string): string {
   return "No output.";
 }
 
+async function runBtgCommand(rawCommand: string, localIdentity: LocalIdentityConfig | null): Promise<string> {
+  if (!supportedPlatforms.has(process.platform)) {
+    throw new Error("btg_runner currently supports Linux and macOS only.");
+  }
+
+  const raw = rawCommand.trim();
+  if (!raw) {
+    throw new Error("Provide a BTG command.");
+  }
+
+  const commandText = raw.replace(/^\/btg(?=\s|$)/i, "btg");
+
+  const normalized =
+    commandText.toLowerCase().startsWith("btg ") || commandText.toLowerCase() === "btg"
+      ? commandText
+      : `btg ${commandText}`;
+
+  const argv = splitShellWords(normalized);
+  const childEnv: NodeJS.ProcessEnv = { ...process.env };
+
+  if (localIdentity?.stateDir) {
+    childEnv.BTG_STATE_DIR = localIdentity.stateDir;
+  }
+  if (localIdentity?.displayName) {
+    childEnv.BTG_DISPLAY_NAME = localIdentity.displayName;
+  }
+
+  const result = await runPluginCommandWithTimeout({
+    argv: ["bash", wrapperPath, ...argv],
+    cwd: baseDir,
+    env: childEnv,
+    timeoutMs: 120000
+  });
+
+  const text = renderOutput(result.stdout, result.stderr);
+
+  if (result.code !== 0 && !text.trim()) {
+    throw new Error(`BTG command failed with exit code ${result.code}.`);
+  }
+
+  return text;
+}
+
+function resolveAgentIdFromCommandContext(ctx: {
+  accountId?: string;
+  channel?: string;
+  config?: { bindings?: Array<{ type?: string; agentId?: string; match?: { channel?: string; accountId?: string } }> };
+}): string | undefined {
+  const route = ctx.config?.bindings?.find((binding) => {
+    if (binding.type !== "route") {
+      return false;
+    }
+    if (binding.match?.channel && binding.match.channel !== ctx.channel) {
+      return false;
+    }
+    if (binding.match?.accountId && binding.match.accountId !== ctx.accountId) {
+      return false;
+    }
+    return Boolean(binding.agentId);
+  });
+
+  return route?.agentId ?? ctx.accountId;
+}
+
 export default definePluginEntry({
   id: "btg",
   name: "BTG",
   description: "Runs BTG commands through run_btg.sh",
   register(api) {
+    api.registerCommand({
+      name: "btg",
+      description: "Run a BTG command and return the raw BTG output.",
+      acceptsArgs: true,
+      requireAuth: false,
+      handler: async (ctx) => {
+        const agentId = resolveAgentIdFromCommandContext(ctx);
+        const localIdentity = resolveLocalIdentityConfig(api.pluginConfig as Record<string, any> | undefined, agentId);
+        const raw = ctx.args?.trim() ? `btg ${ctx.args.trim()}` : "btg";
+        const text = await runBtgCommand(raw, localIdentity);
+        return { text };
+      }
+    });
+
     api.registerTool((ctx) => {
       const localIdentity = resolveLocalIdentityConfig(api.pluginConfig as Record<string, any> | undefined, ctx.agentId);
 
@@ -156,44 +234,7 @@ export default definePluginEntry({
           }
         },
         async execute(_toolCallId, params) {
-          if (!supportedPlatforms.has(process.platform)) {
-            throw new Error("btg_runner currently supports Linux and macOS only.");
-          }
-
-          const raw = params.command.trim();
-          if (!raw) {
-            throw new Error("Provide a BTG command.");
-          }
-
-          const commandText = raw.replace(/^\/btg(?=\s|$)/i, "btg");
-
-          const normalized =
-            commandText.toLowerCase().startsWith("btg ") || commandText.toLowerCase() === "btg"
-              ? commandText
-              : `btg ${commandText}`;
-
-          const argv = splitShellWords(normalized);
-          const childEnv: NodeJS.ProcessEnv = { ...process.env };
-
-          if (localIdentity?.stateDir) {
-            childEnv.BTG_STATE_DIR = localIdentity.stateDir;
-          }
-          if (localIdentity?.displayName) {
-            childEnv.BTG_DISPLAY_NAME = localIdentity.displayName;
-          }
-
-          const result = await runPluginCommandWithTimeout({
-            argv: ["bash", wrapperPath, ...argv],
-            cwd: baseDir,
-            env: childEnv,
-            timeoutMs: 120000
-          });
-
-          const text = renderOutput(result.stdout, result.stderr);
-
-          if (result.code !== 0 && !text.trim()) {
-            throw new Error(`BTG command failed with exit code ${result.code}.`);
-          }
+          const text = await runBtgCommand(params.command, localIdentity);
 
           return {
             content: [{ type: "text", text }]
