@@ -476,7 +476,7 @@ def require_display_name():
         return display_name
 
     print("BTG setup required: no BTG display name is configured.", file=sys.stderr)
-    print("Run: btg setup name <YourBotName>", file=sys.stderr)
+    print("Run: /btg setup name <YourBotName>", file=sys.stderr)
     print("Example names: MyBot or MyBot_BTG", file=sys.stderr)
     sys.exit(1)
 
@@ -552,7 +552,7 @@ def cmd_setup(args):
 
     if action == "name":
         if len(args) < 2:
-            print("Usage: btg setup name <display-name>", file=sys.stderr)
+            print("Usage: /btg setup name <display-name>", file=sys.stderr)
             sys.exit(1)
         display_name = clean_display_name_or_exit(" ".join(args[1:]))
         save_display_name(display_name)
@@ -570,7 +570,7 @@ def cmd_setup(args):
             sys.exit(1)
         save_display_name(display_name)
         print(f"BTG display name set to: {display_name}")
-        result = link_bot_with_invite(invite_code)
+        result = link_bot_with_invite(invite_code, display_name_override=display_name)
         if result.get("ok"):
             print(format_link_success_message(result))
         else:
@@ -595,7 +595,7 @@ def cmd_setup(args):
 
         email_value = " ".join(args[1:]).strip()
         if not email_value:
-            print("Usage: btg setup email [<address>|clear]", file=sys.stderr)
+            print("Usage: /btg setup email [<address>|clear]", file=sys.stderr)
             sys.exit(1)
 
         if email_value.lower() == "clear":
@@ -631,7 +631,7 @@ def cmd_setup(args):
 
     if action == "timezone":
         if len(args) < 2:
-            print("Usage: btg setup timezone <Area/City>", file=sys.stderr)
+            print("Usage: /btg setup timezone <Area/City>", file=sys.stderr)
             sys.exit(1)
         save_timezone_name(args[1].strip())
         print(f"BTG timezone set to: {args[1].strip()}")
@@ -639,7 +639,7 @@ def cmd_setup(args):
 
     if action == "link":
         if len(args) < 2:
-            print("Usage: btg setup link <invite-code>", file=sys.stderr)
+            print("Usage: /btg setup link <invite-code>", file=sys.stderr)
             sys.exit(1)
         invite_code = " ".join(args[1:]).strip()
         result = link_bot_with_invite(invite_code)
@@ -652,7 +652,7 @@ def cmd_setup(args):
 
     if action == "strategy":
         if len(args) < 2:
-            print("Usage: btg setup strategy <random|hot-pick-player|hot-pick-computer|pick-due|cold-avoid>", file=sys.stderr)
+            print("Usage: /btg setup strategy <random|hot-pick-player|hot-pick-computer|pick-due|cold-avoid>", file=sys.stderr)
             sys.exit(1)
         save_strategy(args[1].strip())
         print(f"Default BTG strategy set to: {args[1].strip()}")
@@ -660,7 +660,7 @@ def cmd_setup(args):
 
     if action == "strategycontrol":
         if len(args) < 2:
-            print("Usage: btg setup strategycontrol <suggest|auto-daily|auto-weekly>", file=sys.stderr)
+            print("Usage: /btg setup strategycontrol <suggest|auto-daily|auto-weekly>", file=sys.stderr)
             sys.exit(1)
         mode = args[1].strip().lower()
         save_strategycontrol(mode)
@@ -669,7 +669,7 @@ def cmd_setup(args):
 
     if action == "autopilot":
         if len(args) < 2:
-            print("Usage: btg setup autopilot <on|off>", file=sys.stderr)
+            print("Usage: /btg setup autopilot <on|off>", file=sys.stderr)
             sys.exit(1)
         config = load_autopilot_config()
         setting = args[1].strip().lower()
@@ -678,7 +678,7 @@ def cmd_setup(args):
         elif setting == "off":
             config["enabled"] = False
         else:
-            print("Usage: btg setup autopilot <on|off>", file=sys.stderr)
+            print("Usage: /btg setup autopilot <on|off>", file=sys.stderr)
             sys.exit(1)
         config = save_autopilot_config(config)
         print(f"Autopilot {'enabled' if config['enabled'] else 'disabled'}.")
@@ -686,7 +686,7 @@ def cmd_setup(args):
 
     if action == "cap":
         if len(args) < 2 or not args[1].isdigit():
-            print(f"Usage: btg setup cap <rounds-per-day 1-{MAX_AUTOPILOT_PLAYS_PER_DAY}>", file=sys.stderr)
+            print(f"Usage: /btg setup cap <rounds-per-day 1-{MAX_AUTOPILOT_PLAYS_PER_DAY}>", file=sys.stderr)
             sys.exit(1)
         config = load_autopilot_config()
         config["maxPlaysPerDay"] = int(args[1])
@@ -696,7 +696,7 @@ def cmd_setup(args):
 
     if action == "interval":
         if len(args) < 2 or not args[1].isdigit():
-            print("Usage: btg setup interval <minutes>", file=sys.stderr)
+            print("Usage: /btg setup interval <minutes>", file=sys.stderr)
             sys.exit(1)
         config = load_autopilot_config()
         config["checkIntervalMinutes"] = int(args[1])
@@ -706,7 +706,7 @@ def cmd_setup(args):
 
     if action == "autopilotnotify":
         if len(args) < 2:
-            print("Usage: btg setup autopilotnotify <off|every [n]>", file=sys.stderr)
+            print("Usage: /btg setup autopilotnotify <off|every [n]>", file=sys.stderr)
             sys.exit(1)
         config = load_autopilot_config()
         setting = args[1].strip().lower()
@@ -719,7 +719,7 @@ def cmd_setup(args):
             notify_n = 1
             if len(args) >= 3:
                 if not args[2].isdigit() or int(args[2]) <= 0:
-                    print("Usage: btg setup autopilotnotify <off|every [n]>", file=sys.stderr)
+                    print("Usage: /btg setup autopilotnotify <off|every [n]>", file=sys.stderr)
                     sys.exit(1)
                 notify_n = int(args[2])
             config["notifyEveryNBatches"] = notify_n
@@ -729,7 +729,7 @@ def cmd_setup(args):
             else:
                 print(f"Autopilot notifications set to every {notify_n} autoplay rounds.")
             return
-        print("Usage: btg setup autopilotnotify <off|every [n]>", file=sys.stderr)
+        print("Usage: /btg setup autopilotnotify <off|every [n]>", file=sys.stderr)
         sys.exit(1)
 
     print("Usage: /btg setup [show|starter <display-name> <owner-invite-code>|name <display-name>|email [<address>|clear]|timezone <Area/City>|link <invite-code>|strategy <mode>|strategycontrol <suggest|auto-daily|auto-weekly>|autopilot <on|off>|cap <rounds-per-day>|interval <minutes>|autopilotnotify <off|every [n]>]", file=sys.stderr)
@@ -743,7 +743,7 @@ def store_bot_credentials(api_key, profile_id):
         os.chmod(path, 0o600)
 
 
-def link_bot_with_invite(invite_code):
+def link_bot_with_invite(invite_code, display_name_override=None):
     ensure_state_dirs()
     if has_bot_credentials():
         return {
@@ -751,7 +751,7 @@ def link_bot_with_invite(invite_code):
             "error": "already_linked",
             "message": "This bot already has BTG credentials. To link a different bot, use a fresh state directory.",
         }
-    display_name = require_display_name()
+    display_name = clean_display_name_or_exit(display_name_override) if display_name_override is not None else require_display_name()
     timezone_name = get_bot_timezone()
     clean_invite_code = invite_code.strip() if isinstance(invite_code, str) else ""
     if not clean_invite_code:
@@ -3164,7 +3164,7 @@ def load_key(path, idx):
                 return v
     print("BTG setup required: this bot is not linked to a BTG owner yet.", file=sys.stderr)
     print("Ask the human owner to create a bot link code in BTG Settings -> My Bots.", file=sys.stderr)
-    print("Then run: btg setup link <invite-code>", file=sys.stderr)
+    print("Then run: /btg setup link <invite-code>", file=sys.stderr)
     sys.exit(1)
 
 def load_api_key():
@@ -3699,8 +3699,8 @@ def format_link_success_message(result):
 
     lines.extend([
         "Next step:",
-        "btg status",
-        "btg play",
+        "/btg status",
+        "/btg play",
     ])
     return "\n".join(lines)
 
@@ -3714,7 +3714,7 @@ def format_link_failure_message(result):
     if error == "already_linked":
         return redact_sensitive_text(message or "This bot is already linked.", redact_profile_id=True)
     if error == "missing_invite":
-        return "Could not link this bot.\nA bot link code is required.\nRun: btg setup link <invite-code>"
+        return "Could not link this bot.\nA bot link code is required.\nRun: /btg setup link <invite-code>"
     if error == "rate_limited":
         detail = redact_sensitive_text(message or "Too many bot registration attempts. Please try again later.", redact_profile_id=True)
         return f"Could not link this bot.\n{detail}"
@@ -3731,7 +3731,7 @@ def format_link_failure_message(result):
             "Could not link this bot.\n"
             "The invite code is invalid, expired, or already used.\n"
             "Ask the human owner to generate a fresh code from BTG Settings -> My Bots, then run:\n"
-            "btg setup link <invite-code>"
+            "/btg setup link <invite-code>"
         )
     return f"Could not link this bot.\n{clean_message}"
 
@@ -4088,7 +4088,7 @@ def print_help_entry(command, description, indent=False):
 
 
 def cmd_help_examples():
-    print("btg help examples")
+    print("/btg help examples")
     print("Copy/paste BTG examples using the preferred syntax.")
     print()
     print("PLAY")
@@ -4153,7 +4153,7 @@ def cmd_help(args=None):
         cmd_help_examples()
         return
 
-    print("btg help")
+    print("/btg help")
     print("Short BTG command reference. Use /btg help examples for copy/paste examples.")
     print()
     print("PLAY")
@@ -4947,13 +4947,13 @@ def main():
     if requires_identity:
         if not has_display_name_configured():
             print("BTG setup required before this command.", file=sys.stderr)
-            print("Run: btg setup", file=sys.stderr)
+            print("Run: /btg setup", file=sys.stderr)
             sys.exit(1)
         if not has_bot_credentials():
             log_event("identity missing: setup link required")
             print("BTG setup required: this bot is not linked to a BTG owner yet.", file=sys.stderr)
             print("Ask the human owner to create a bot link code in BTG Settings -> My Bots.", file=sys.stderr)
-            print("Then run: btg setup link <invite-code>", file=sys.stderr)
+            print("Then run: /btg setup link <invite-code>", file=sys.stderr)
             sys.exit(1)
         else:
             api_key = load_api_key()
