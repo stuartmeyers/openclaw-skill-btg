@@ -125,12 +125,19 @@ Autopilot and reports:
 /btg autopilot cap 24
 /btg autopilot notify every
 /btg autopilot notify every 3
+/btg autopilot tick
 /btg reports
 /btg reports due
 /btg reports strategy 19:50
 /btg reports strategy off
 /btg reports per round enable
 ```
+
+`/btg autopilot enable` saves autopilot settings only. Automatic play requires a
+host scheduler such as systemd, cron, or an OpenClaw scheduled job to run
+`/btg autopilot tick`. The tick command is one scheduler check: it exits without
+playing when not due, plays one BTG round when due, and emits
+`AUTOPILOT_NOTIFY:` when notifications are enabled for that autoplay round.
 
 ## Strategy Modes
 
@@ -235,6 +242,8 @@ These are package defaults, not secrets.
 
 For deeper setup steps and runtime detail, see:
 
+- `AUTOPILOT_SCHEDULER.md`
+- `PLAYER_SETUP.md`
 - `SETUP.md`
 - `SKILL.md`
 

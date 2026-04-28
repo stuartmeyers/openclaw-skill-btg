@@ -148,6 +148,20 @@ Configure each bot's BTG `localIdentities` entry with its own `stateDir`, so one
 bot never reuses another bot's `.api-key`, `.profile-id`, history, strategy, or
 logs.
 
+## Autopilot Scheduling
+
+`/btg autopilot enable` saves autopilot settings such as enabled state, daily
+target, interval, and notification preference. It does not create a background
+scheduler by itself.
+
+Automatic play happens only when a host scheduler repeatedly runs
+`/btg autopilot tick`. The tick command exits without playing when not due,
+plays one 10-game BTG round when due, and emits `AUTOPILOT_NOTIFY:` when
+notifications are enabled for that autoplay round.
+
+For copy/paste systemd timer examples, Telegram notification dispatch, log
+checks, and multi-bot path safety, see `AUTOPILOT_SCHEDULER.md`.
+
 ## Troubleshooting
 
 If `/btg help` does not answer:

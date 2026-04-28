@@ -92,7 +92,14 @@ Use these to inspect or change strategy and run the fixed 5-day strategy trial.
 /btg autopilot tick
 ```
 
-Use autopilot commands to control scheduled BTG play.
+Use autopilot commands to save the schedule settings and notification
+preference. `/btg autopilot enable` does not start a background scheduler by
+itself. Automatic play only happens when a host scheduler such as systemd, cron,
+or an OpenClaw scheduled job runs `/btg autopilot tick`.
+
+`/btg autopilot tick` is one scheduler check. If the next autoplay window is not
+due, it exits without playing. If play is due, it plays one BTG round and emits
+`AUTOPILOT_NOTIFY:` when notifications are enabled for that autoplay round.
 
 ## Reports
 

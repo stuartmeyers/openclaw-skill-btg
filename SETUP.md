@@ -262,11 +262,17 @@ Each workspace should provide its own:
 
 ## Optional Automation
 
-If you want BTG to run on a schedule, set that up in your own deployment with cron or another scheduler.
+If you want BTG to run on a schedule, set that up in your own deployment with
+systemd, cron, or an OpenClaw scheduled job. `/btg autopilot enable` only saves
+autopilot settings; automatic play happens when the host scheduler runs
+`btg autopilot tick`.
 
 Examples of optional automation:
 
-- hourly `btg autopilot tick`
+- `btg autopilot tick` every few minutes; it exits without playing until due
 - a lightweight report dispatcher that checks whether `btg review strategy` is due
 
-Keep that scheduling logic operator-specific. The publishable package should stay generic and should not contain personal chat ids, tokens, or deployment-specific cron wiring.
+Keep that scheduling logic operator-specific. Multi-bot deployments need
+separate scheduler, state, profile, lock, log, and notification paths per bot.
+The publishable package should stay generic and should not contain personal chat
+ids, tokens, or deployment-specific cron wiring.
