@@ -1530,6 +1530,39 @@ def maybe_advance_strategy_trial(now=None):
     }
 
 
+def build_strategy_trial_event_notification_lines(trial_state, trial_event, api_key, profile_id):
+    if not isinstance(trial_event, dict):
+        return []
+
+    strategies = trial_state.get("strategies", STRATEGY_TRIAL_STRATEGIES) if isinstance(trial_state, dict) else STRATEGY_TRIAL_STRATEGIES
+    action = trial_event.get("action")
+    strategy = trial_event.get("strategy")
+    if action == "switched":
+        day = safe_int(trial_event.get("day"), 0)
+        lines = [
+            "BTG strategy trial update",
+            "",
+            f"Trial switched to Day {day}/{len(strategies)}.",
+            f"New strategy: {strategy}",
+            "",
+            "Strategy review:",
+        ]
+    elif action == "completed":
+        lines = [
+            "BTG strategy trial complete",
+            "",
+            f"Final strategy: {strategy}",
+            f"Completed at: {trial_event.get('completedAt')}",
+            "",
+            "Strategy review:",
+        ]
+    else:
+        return []
+
+    review_lines = build_strategy_review_lines(api_key, profile_id)
+    return lines + review_lines
+
+
 def analyze_trial_results(trial_state):
     if not isinstance(trial_state, dict):
         return None
@@ -2007,7 +2040,7 @@ def print_game_awareness():
             print(line)
 
 
-def cmd_autopilot(api_key, profile_id, args):
+def cmd_autopilot(api_key, profile_id, args, trial_event=None, trial_state=None):
     config = load_autopilot_config()
     action = "status" if not args else args[0]
 
@@ -2087,6 +2120,14 @@ def cmd_autopilot(api_key, profile_id, args):
         print()
         print_game_awareness()
         print()
+
+        trial_notification_lines = build_strategy_trial_event_notification_lines(trial_state, trial_event, api_key, profile_id)
+        if trial_notification_lines:
+            print("Trial notification: emitted")
+            print()
+            print("AUTOPILOT_NOTIFY: " + "\n".join(trial_notification_lines))
+            log_event("autopilot tick: emitted strategy trial notification")
+            return
 
         if not autopilot["enabled"]:
             print("Decision: no action. Autopilot is disabled.")
@@ -5038,8 +5079,10 @@ def main():
         should_manage_trial = args[0] not in ["help", "setup", "support"]
         if args[0] == "strategy" and len(args) >= 2 and args[1] == "trial":
             should_manage_trial = False
+    trial_state = None
+    trial_event = None
     if should_manage_trial:
-        maybe_advance_strategy_trial()
+        trial_state, trial_event = maybe_advance_strategy_trial()
 
     if cmd == "btg":
         if len(args) == 0:
@@ -5068,7 +5111,7 @@ def main():
         elif subcmd == "play":
             cmd_play(api_key, profile_id)
         elif subcmd == "autopilot":
-            cmd_autopilot(api_key, profile_id, subargs)
+            cmd_autopilot(api_key, profile_id, subargs, trial_event=trial_event, trial_state=trial_state)
         elif subcmd == "review":
             if not subargs:
                 print("Usage: btg review strategy", file=sys.stderr)
@@ -5117,7 +5160,7 @@ def main():
     elif cmd == "play":
         cmd_play(api_key, profile_id)
     elif cmd == "autopilot":
-        cmd_autopilot(api_key, profile_id, args)
+        cmd_autopilot(api_key, profile_id, args, trial_event=trial_event, trial_state=trial_state)
     elif cmd == "review":
         if len(args) == 0:
             print("Usage: btg review strategy", file=sys.stderr)
