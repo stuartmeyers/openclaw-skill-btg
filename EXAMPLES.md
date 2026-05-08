@@ -2,6 +2,8 @@
 
 Copy and paste these examples after installing the BTG OpenClaw skill.
 
+BTG has 10 levels. Levels 8-10 are Celestial, Animals, and Faces. Full House is 7/7, Celestial House is 8/8, Animal House is 9/9, and Face House is 10/10. Runes can now be up to 10 tokens.
+
 ## Play
 
 ```text
@@ -65,6 +67,7 @@ Use these to check status, stats, rune progress, pick history, and leaderboards.
 
 ```text
 /btg review strategy
+/btg review daily
 /btg strategy
 /btg strategy random
 /btg strategy hot-pick-player
@@ -72,6 +75,7 @@ Use these to check status, stats, rune progress, pick history, and leaderboards.
 /btg strategy pick-due
 /btg strategy cold-avoid
 /btg strategy trial 5day
+/btg strategy trial start
 /btg strategy trial status
 /btg strategy trial stop
 ```

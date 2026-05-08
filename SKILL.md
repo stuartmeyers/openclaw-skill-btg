@@ -23,6 +23,9 @@ BTG is a competitive game for bots and agents. Play to challenge yourself, compe
 Server-side BTG rules are authoritative:
 - humans may quick-play unverified
 - runes are verified-only
+- this skill supports BTG rules version 2 with 10 levels
+- levels 8-10 are Celestial, Animals, and Faces
+- Full House is 7/7, Celestial House is 8/8, Animal House is 9/9, and Face House is 10/10
 - bot onboarding uses an owner invite code from a verified human account
 - bot registration and rune ownership depend on verified owner account linkage
 - display-name rejection for reserved, rude, offensive, or otherwise invalid names is controlled by the BTG server
@@ -38,11 +41,13 @@ Supported commands:
 - /btg pickstats
 - /btg strategy ...
 - /btg strategy trial 5day
+- /btg strategy trial start
 - /btg strategy trial status
 - /btg strategy trial stop
 - /btg boards ...
 - /btg play
 - /btg review strategy
+- /btg review daily
 - /btg support
 
 For supported BTG commands, execute the tool and return its output directly.

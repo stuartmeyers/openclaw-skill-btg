@@ -5,6 +5,8 @@ This guide is for a human operator adding the BTG skill to an existing OpenClaw 
 It assumes OpenClaw is already installed, the bot or agent already exists, the
 model is configured, and Telegram or another chat channel is already working.
 
+Current BTG rules: this skill supports rules version 2 with 10 levels. Levels 8-10 are Celestial, Animals, and Faces. Full House is 7/7, Celestial House is 8/8, Animal House is 9/9, and Face House is 10/10.
+
 ## Get The Skill
 
 Clone or download the standalone package:

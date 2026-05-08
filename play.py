@@ -15,6 +15,7 @@ CONTACT_EMAIL_FILE = os.path.join(STATE_DIR, ".contact-email")
 STRATEGY_FILE = os.path.join(CONFIG_DIR, "strategy.json")
 STRATEGY_CONTROL_FILE = os.path.join(CONFIG_DIR, "strategycontrol.json")
 AUTOPILOT_FILE = os.path.join(CONFIG_DIR, "autopilot.json")
+AUTOPILOT_NOTIFY_QUEUE_FILE = os.path.join(CONFIG_DIR, "autopilot-notify-queue.json")
 REPORTS_FILE = os.path.join(CONFIG_DIR, "reports.json")
 STRATEGY_STATS_FILE = os.path.join(STATE_DIR, ".strategy-stats.json")
 STRATEGY_TRIAL_FILE = os.path.join(STATE_DIR, ".strategy-trial.json")
@@ -56,6 +57,40 @@ STRATEGY_TRIAL_STRATEGIES = [
     "pick-due",
     "cold-avoid",
 ]
+SUPPORTED_RULES_VERSION = 2
+SUPPORTED_MAX_LEVEL = 10
+STAGE_DEFINITIONS = [
+    {"level": 1, "key": "blackWhite", "label": "Black/White", "short": "BW", "aliases": ["blackWhite", "black_white", "bw", "level1"]},
+    {"level": 2, "key": "vehicles", "label": "Vehicles", "short": "Vehicles", "aliases": ["vehicles", "vehicle", "level2"]},
+    {"level": 3, "key": "suit", "label": "Suit", "short": "Suit", "aliases": ["suit", "suits", "level3"]},
+    {"level": 4, "key": "hands", "label": "Hands", "short": "Hands", "aliases": ["hands", "hand", "level4"]},
+    {"level": 5, "key": "dice", "label": "Dice", "short": "Dice", "aliases": ["dice", "die", "level5"]},
+    {"level": 6, "key": "shapes", "label": "Shapes", "short": "Shapes", "aliases": ["shapes", "shape", "level6"]},
+    {"level": 7, "key": "colour", "label": "Colour", "short": "Colour", "aliases": ["colour", "color", "colours", "colors", "level7"]},
+    {"level": 8, "key": "celestial", "label": "Celestial", "short": "Celestial", "aliases": ["celestial", "level8"]},
+    {"level": 9, "key": "animals", "label": "Animals", "short": "Animals", "aliases": ["animals", "animal", "level9"]},
+    {"level": 10, "key": "faces", "label": "Faces", "short": "Faces", "aliases": ["faces", "face", "level10"]},
+]
+STAGE_KEYS = [stage["key"] for stage in STAGE_DEFINITIONS]
+STAGE_ALIASES = {
+    alias: stage
+    for stage in STAGE_DEFINITIONS
+    for alias in [stage["key"], stage["label"], stage["short"], *stage["aliases"]]
+}
+HOUSE_DEFINITIONS = [
+    {"key": "fullHouse", "label": "Full House", "compact": "Full", "depth": 7},
+    {"key": "celestialHouse", "label": "Celestial House", "compact": "Celestial", "depth": 8},
+    {"key": "animalHouse", "label": "Animal House", "compact": "Animal", "depth": 9},
+    {"key": "faceHouse", "label": "Face House", "compact": "Face", "depth": 10},
+]
+LEGACY_HOUSE_DEFINITIONS = [
+    {"key": "sixHouse", "label": "Six House", "compact": "Six"},
+    {"key": "fiveHouse", "label": "Five House", "compact": "Five"},
+    {"key": "halfHouse", "label": "Half House", "compact": "Half"},
+    {"key": "highHouse", "label": "High House", "compact": "High"},
+    {"key": "lowHouse", "label": "Low House", "compact": "Low"},
+    {"key": "sixSeven", "label": "Six-Seven", "compact": "SixSeven"},
+]
 RUNE_STAGE_EMOJI = [
     {"white": "⚪", "black": "⚫"},
     {"car": "🚗", "motorbike": "🏍️", "truck": "🚚"},
@@ -64,16 +99,11 @@ RUNE_STAGE_EMOJI = [
     {"1": "⚀", "2": "⚁", "3": "⚂", "4": "⚃", "5": "⚄", "6": "⚅"},
     {"square": "⬛", "triangle": "▲", "circle": "•", "star": "★", "diamond": "◆", "hexagon": "⬢", "plus": "✚", "cross": "✖️"},
     {"light_blue": "🩵", "orange": "🧡", "yellow": "💛", "green": "💚", "blue": "💙", "purple": "💜", "black": "🖤", "white": "🤍", "brown": "🤎", "pink": "🩷"},
+    {"sun": "☀️", "moon": "🌙", "star": "⭐", "glowing_star": "🌟", "sparkles": "✨", "dizzy_star": "💫", "shooting_star": "🌠", "comet": "☄️", "milky_way": "🌌", "planet": "🪐", "full_moon": "🌕"},
+    {"rat": "🐀", "ox": "🐂", "tiger": "🐅", "rabbit": "🐇", "dragon": "🐉", "snake": "🐍", "horse": "🐎", "goat": "🐐", "monkey": "🐒", "rooster": "🐓", "dog": "🐕", "pig": "🐖"},
+    {"grin": "😀", "laugh": "😂", "love": "😍", "cool": "😎", "think": "🤔", "surprise": "😮", "cry": "😢", "angry": "😡", "scream": "😱", "sick": "🤢", "cold": "🥶", "sleep": "😴", "robot": "🤖"},
 ]
-RUNE_SEQUENCE_STAGE_KEYS = [
-    ["blackWhite", "black_white", "bw", "level1"],
-    ["vehicles", "vehicle", "level2"],
-    ["suit", "suits", "level3"],
-    ["hands", "hand", "level4"],
-    ["dice", "die", "level5"],
-    ["shapes", "shape", "level6"],
-    ["colour", "color", "colours", "colors", "level7"],
-]
+RUNE_SEQUENCE_STAGE_KEYS = [stage["aliases"] for stage in STAGE_DEFINITIONS]
 RUNE_SEQUENCE_VALUE_KEYS = [
     "runeSequence",
     "rune_sequence",
@@ -129,6 +159,42 @@ RUNE_DISPLAY_TOKEN_EMOJI = {
     "purple": "💜",
     "brown": "🤎",
     "pink": "🩷",
+    "sun": "☀️",
+    "moon": "🌙",
+    "star": "⭐",
+    "glowing_star": "🌟",
+    "sparkles": "✨",
+    "dizzy_star": "💫",
+    "shooting_star": "🌠",
+    "comet": "☄️",
+    "milky_way": "🌌",
+    "planet": "🪐",
+    "full_moon": "🌕",
+    "rat": "🐀",
+    "ox": "🐂",
+    "tiger": "🐅",
+    "rabbit": "🐇",
+    "dragon": "🐉",
+    "snake": "🐍",
+    "horse": "🐎",
+    "goat": "🐐",
+    "monkey": "🐒",
+    "rooster": "🐓",
+    "dog": "🐕",
+    "pig": "🐖",
+    "grin": "😀",
+    "laugh": "😂",
+    "love": "😍",
+    "cool": "😎",
+    "think": "🤔",
+    "surprise": "😮",
+    "cry": "😢",
+    "angry": "😡",
+    "scream": "😱",
+    "sick": "🤢",
+    "cold": "🥶",
+    "sleep": "😴",
+    "robot": "🤖",
 }
 RUNE_KEY_STAGE_VALUE_MAP = {
     "1": ["black", "white"],
@@ -138,6 +204,9 @@ RUNE_KEY_STAGE_VALUE_MAP = {
     "5": ["1", "2", "3", "4", "5", "6"],
     "6": ["square", "triangle", "circle", "star", "diamond", "hexagon", "plus", "cross"],
     "7": ["light_blue", "orange", "yellow", "green", "blue", "purple", "black", "white", "brown", "pink"],
+    "8": ["sun", "moon", "star", "glowing_star", "sparkles", "dizzy_star", "shooting_star", "comet", "milky_way", "planet", "full_moon"],
+    "9": ["rat", "ox", "tiger", "rabbit", "dragon", "snake", "horse", "goat", "monkey", "rooster", "dog", "pig"],
+    "10": ["grin", "laugh", "love", "cool", "think", "surprise", "cry", "angry", "scream", "sick", "cold", "sleep", "robot"],
 }
 
 def ensure_state_dirs():
@@ -220,6 +289,52 @@ def load_batch_history():
         return []
 
     return data if isinstance(data, list) else []
+
+
+def load_autopilot_notification_queue():
+    migrate_legacy_state()
+    if not os.path.exists(AUTOPILOT_NOTIFY_QUEUE_FILE):
+        return []
+
+    try:
+        with open(AUTOPILOT_NOTIFY_QUEUE_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return []
+
+    if not isinstance(data, list):
+        return []
+    return [item for item in data if isinstance(item, str) and item.strip()]
+
+
+def save_autopilot_notification_queue(queue):
+    ensure_state_dirs()
+    if not isinstance(queue, list):
+        queue = []
+    queue = [item for item in queue if isinstance(item, str) and item.strip()][-100:]
+    with open(AUTOPILOT_NOTIFY_QUEUE_FILE, "w", encoding="utf-8") as f:
+        json.dump(queue, f, ensure_ascii=True, indent=2)
+    os.chmod(AUTOPILOT_NOTIFY_QUEUE_FILE, 0o600)
+
+
+def append_autopilot_notification_queue(message):
+    if not isinstance(message, str) or not message.strip():
+        return
+    queue = load_autopilot_notification_queue()
+    queue.append(message.strip())
+    save_autopilot_notification_queue(queue)
+
+
+def pop_autopilot_notification_queue(limit):
+    queue = load_autopilot_notification_queue()
+    if not queue:
+        return []
+    limit = safe_int(limit, 0)
+    if limit <= 0:
+        return []
+    messages = queue[:limit]
+    save_autopilot_notification_queue(queue[limit:])
+    return messages
 
 def save_stats_cache(stats):
     if not isinstance(stats, dict):
@@ -1103,7 +1218,7 @@ def normalize_recent_rounds(values):
             continue
         scores = [safe_int(score, 0) for score in item.get("scores", []) if isinstance(score, (int, float))]
         stage_depths = [
-            min(7, max(0, safe_int(depth, 0)))
+            min(supported_stage_count(), max(0, safe_int(depth, 0)))
             for depth in item.get("stageDepths", [])
             if isinstance(depth, (int, float))
         ]
@@ -1119,7 +1234,15 @@ def normalize_recent_rounds(values):
 def normalize_stage_reach_counts(raw):
     if not isinstance(raw, dict):
         raw = {}
-    return {str(level): max(0, safe_int(raw.get(str(level), 0))) for level in range(1, 8)}
+    return {str(level): max(0, safe_int(raw.get(str(level), 0))) for level in range(1, supported_stage_count() + 1)}
+
+def normalize_depth_counts(raw):
+    if not isinstance(raw, dict):
+        raw = {}
+    return {
+        str(level): max(0, safe_int(raw.get(str(level), 0)))
+        for level in range(5, supported_stage_count() + 1)
+    }
 
 
 def normalize_strategy_summary(raw):
@@ -1133,11 +1256,7 @@ def normalize_strategy_summary(raw):
         "topScores": normalize_top_scores(raw.get("topScores", [])),
         "allScores": [safe_int(score, 0) for score in raw.get("allScores", []) if isinstance(score, (int, float))][-1000:] if isinstance(raw.get("allScores"), list) else [],
         "stageReachCounts": normalize_stage_reach_counts(raw.get("stageReachCounts", {})),
-        "depthCounts": {
-            "5": max(0, safe_int(raw.get("depthCounts", {}).get("5", 0))) if isinstance(raw.get("depthCounts"), dict) else 0,
-            "6": max(0, safe_int(raw.get("depthCounts", {}).get("6", 0))) if isinstance(raw.get("depthCounts"), dict) else 0,
-            "7": max(0, safe_int(raw.get("depthCounts", {}).get("7", 0))) if isinstance(raw.get("depthCounts"), dict) else 0,
-        },
+        "depthCounts": normalize_depth_counts(raw.get("depthCounts", {})),
         "recentRounds": normalize_recent_rounds(raw.get("recentRounds", [])),
     }
 
@@ -1213,7 +1332,7 @@ def normalize_strategy_game_entries(game_entries):
             score = safe_int(entry.get("finalScore", entry.get("score", 0)), 0)
             streaks = entry.get("streaks")
             if isinstance(streaks, list):
-                stage_depth = sum(1 for value in streaks[:7] if safe_int(value, 0) > 0)
+                stage_depth = calculate_stage_depth(streaks)
             else:
                 stage_depth = None
         else:
@@ -1242,15 +1361,12 @@ def apply_scores_to_strategy_summary(summary, game_entries):
         normalized["topScores"] = extend_top_scores(normalized["topScores"], positive_scores)
 
     for depth in stage_depths:
-        for level in range(1, 8):
+        for level in range(1, supported_stage_count() + 1):
             if depth >= level:
                 normalized["stageReachCounts"][str(level)] += 1
-        if depth >= 5:
-            normalized["depthCounts"]["5"] += 1
-        if depth >= 6:
-            normalized["depthCounts"]["6"] += 1
-        if depth >= 7:
-            normalized["depthCounts"]["7"] += 1
+        for level in range(5, supported_stage_count() + 1):
+            if depth >= level:
+                normalized["depthCounts"][str(level)] += 1
 
     normalized["recentRounds"] = (normalized.get("recentRounds", []) + [{
         "scores": scores,
@@ -1314,9 +1430,16 @@ def summarize_strategy_summary(summary):
         "recent10RoundGames": len(recent_10_round_scores),
         "recent10RoundAverage": int(round(sum(recent_10_round_scores) / len(recent_10_round_scores))) if recent_10_round_scores else 0,
         "recent10RoundMedian": median_int(recent_10_round_scores),
+        "recentDepthCounts": {
+            str(level): sum(1 for depth in recent_10_round_depths if safe_int(depth, 0) >= level)
+            for level in range(5, supported_stage_count() + 1)
+        },
         "recent10Round5Plus": sum(1 for depth in recent_10_round_depths if safe_int(depth, 0) >= 5),
         "recent10Round6Plus": sum(1 for depth in recent_10_round_depths if safe_int(depth, 0) >= 6),
         "recent10Round7Plus": sum(1 for depth in recent_10_round_depths if safe_int(depth, 0) >= 7),
+        "recent10Round8Plus": sum(1 for depth in recent_10_round_depths if safe_int(depth, 0) >= 8),
+        "recent10Round9Plus": sum(1 for depth in recent_10_round_depths if safe_int(depth, 0) >= 9),
+        "recent10Round10Plus": sum(1 for depth in recent_10_round_depths if safe_int(depth, 0) >= 10),
     }
 
 
@@ -1530,6 +1653,39 @@ def maybe_advance_strategy_trial(now=None):
     }
 
 
+def build_strategy_trial_event_notification_lines(trial_state, trial_event, api_key, profile_id):
+    if not isinstance(trial_event, dict):
+        return []
+
+    strategies = trial_state.get("strategies", STRATEGY_TRIAL_STRATEGIES) if isinstance(trial_state, dict) else STRATEGY_TRIAL_STRATEGIES
+    action = trial_event.get("action")
+    strategy = trial_event.get("strategy")
+    if action == "switched":
+        day = safe_int(trial_event.get("day"), 0)
+        lines = [
+            "BTG strategy trial update",
+            "",
+            f"Trial switched to Day {day}/{len(strategies)}.",
+            f"New strategy: {strategy}",
+            "",
+            "Strategy review:",
+        ]
+    elif action == "completed":
+        lines = [
+            "BTG strategy trial complete",
+            "",
+            f"Final strategy: {strategy}",
+            f"Completed at: {trial_event.get('completedAt')}",
+            "",
+            "Strategy review:",
+        ]
+    else:
+        return []
+
+    review_lines = build_strategy_review_lines(api_key, profile_id, detail=True)
+    return lines + review_lines
+
+
 def analyze_trial_results(trial_state):
     if not isinstance(trial_state, dict):
         return None
@@ -1703,12 +1859,12 @@ def cmd_strategy(args):
         print(f"Current strategy: {current}")
         return
 
-    if args[0] == "trial":
+    if args[0] in ["trial", "trail"]:
         if len(args) < 2:
-            print("Usage: btg strategy trial [5day|status|stop]", file=sys.stderr)
+            print("Usage: btg strategy trial [5day|start|status|stop]", file=sys.stderr)
             sys.exit(1)
         action = args[1].strip().lower()
-        if action == "5day":
+        if action in ["5day", "start"]:
             trial_state = start_fixed_strategy_trial()
             print("Started fixed 5-day strategy trial from scratch.")
             print(f"Day 1 strategy: {trial_state['strategies'][0]}")
@@ -1728,7 +1884,7 @@ def cmd_strategy(args):
             print("Stopped the fixed 5-day strategy trial.")
             print("The current strategy is left unchanged.")
             return
-        print("Usage: btg strategy trial [5day|status|stop]", file=sys.stderr)
+        print("Usage: btg strategy trial [5day|start|status|stop]", file=sys.stderr)
         sys.exit(1)
 
     mode = args[0]
@@ -1793,7 +1949,7 @@ def format_success_breakdown_for_result(result):
     if score < 5000:
         return None
 
-    stage_keys = ["blackWhite", "vehicles", "suit", "hands", "dice", "shapes", "colour"]
+    stage_keys = STAGE_KEYS
     streaks = result.get("streaks")
     bonuses = result.get("bonuses")
     if not isinstance(streaks, list):
@@ -1851,10 +2007,8 @@ def build_play_highlights(
         highlights.append(f"All-time Top 10 score: #{post_alltime_rank} bot leaderboard")
 
     bonus_highlights = [
-        ("fullHouse", "Full House scored"),
-        ("sixHouse", "Six House scored"),
-        ("fiveHouse", "Five House scored"),
-        ("sixSeven", "Six-Seven scored"),
+        (definition["key"], f"{definition['label']} scored ({definition['depth']}/{definition['depth']})")
+        for definition in HOUSE_DEFINITIONS
     ]
     for bonus_key, label in bonus_highlights:
         if batch_has_bonus(results, bonus_key):
@@ -1869,7 +2023,7 @@ def format_play_highlights(highlights):
     return ["Highlights:"] + [f"• {line}" for line in highlights]
 
 
-def build_autopilot_notification_line(batch_summary, autoplay_batch_count, autopilot_config):
+def build_autopilot_notification_text(batch_summary):
     if not batch_summary:
         return None
     if not batch_summary.get("played"):
@@ -1888,9 +2042,6 @@ def build_autopilot_notification_line(batch_summary, autoplay_batch_count, autop
             retry_line,
         ])
 
-    if not should_send_autopilot_notification(autopilot_config, autoplay_batch_count):
-        return None
-
     top_score = batch_summary.get("topScore", 0)
     strategy = batch_summary.get("strategy", load_strategy())
     message = f"stubot.ai-BTG. Top score: {top_score}. Strategy: {strategy}."
@@ -1908,6 +2059,39 @@ def build_autopilot_notification_line(batch_summary, autoplay_batch_count, autop
         lines.extend(discovered_runes)
     lines.extend(format_play_highlights(batch_summary.get("highlights")))
     return "\n".join(lines)
+
+
+def build_autopilot_notification_lines(batch_summary, autoplay_batch_count, autopilot_config):
+    if not batch_summary:
+        return []
+
+    notification_text = build_autopilot_notification_text(batch_summary)
+    if not notification_text:
+        return []
+
+    # Server-limit notices are operational alerts, so keep them immediate and unqueued.
+    if not batch_summary.get("played"):
+        return [notification_text]
+
+    every_n = autopilot_config.get("notifyEveryNBatches", 0)
+    if every_n <= 0:
+        return []
+
+    append_autopilot_notification_queue(notification_text)
+
+    # Notify based on the queued report count rather than the lifetime autoplay
+    # batch number. This makes "every N rounds" behave correctly when enabled
+    # mid-day or after prior autoplay history already exists.
+    queued_notifications = load_autopilot_notification_queue()
+    if len(queued_notifications) < every_n:
+        return []
+
+    return pop_autopilot_notification_queue(every_n)
+
+
+def build_autopilot_notification_line(batch_summary, autoplay_batch_count, autopilot_config):
+    lines = build_autopilot_notification_lines(batch_summary, autoplay_batch_count, autopilot_config)
+    return "\n\n".join(lines) if lines else None
 
 
 def compute_play_readiness():
@@ -2007,7 +2191,7 @@ def print_game_awareness():
             print(line)
 
 
-def cmd_autopilot(api_key, profile_id, args):
+def cmd_autopilot(api_key, profile_id, args, trial_event=None, trial_state=None):
     config = load_autopilot_config()
     action = "status" if not args else args[0]
 
@@ -2088,6 +2272,14 @@ def cmd_autopilot(api_key, profile_id, args):
         print_game_awareness()
         print()
 
+        trial_notification_lines = build_strategy_trial_event_notification_lines(trial_state, trial_event, api_key, profile_id)
+        if trial_notification_lines:
+            print("Trial notification: emitted")
+            print()
+            print("AUTOPILOT_NOTIFY: " + "\n".join(trial_notification_lines))
+            log_event("autopilot tick: emitted strategy trial notification")
+            return
+
         if not autopilot["enabled"]:
             print("Decision: no action. Autopilot is disabled.")
             log_event("autopilot tick: skipped (disabled)")
@@ -2107,8 +2299,8 @@ def cmd_autopilot(api_key, profile_id, args):
         log_event("autopilot tick: triggering btg play")
         batch_summary = cmd_play(api_key, profile_id, trigger_source="autopilot")
         autoplay_batch_count = count_autopilot_batches()
-        notification_line = build_autopilot_notification_line(batch_summary, autoplay_batch_count, autopilot)
-        if notification_line:
+        notification_lines = build_autopilot_notification_lines(batch_summary, autoplay_batch_count, autopilot)
+        for notification_line in notification_lines:
             print()
             print(f"AUTOPILOT_NOTIFY: {notification_line}")
         return
@@ -2117,18 +2309,134 @@ def cmd_autopilot(api_key, profile_id, args):
     sys.exit(1)
 
 def stage_label(stage):
-    return (
-        stage.replace("BlackWhite", "Black/White")
-        .replace("Vehicles", "Vehicles")
-        .replace("Suit", "Suit")
-        .replace("Hands", "Hands")
-        .replace("Dice", "Dice")
-        .replace("Shapes", "Shapes")
-        .replace("Colour", "Colour")
-    )
+    definition = stage_definition_for_key(stage)
+    return definition["label"] if definition else str(stage)
 
 def safe_int(value, default=0):
     return int(value) if isinstance(value, (int, float)) else default
+
+def normalize_stage_key(value):
+    if value is None:
+        return ""
+    text = str(value).strip()
+    if not text:
+        return ""
+    return text.replace("-", "_").replace(" ", "_").lower()
+
+def stage_definition_for_key(value):
+    normalized = normalize_stage_key(value)
+    if not normalized:
+        return None
+    for alias, definition in STAGE_ALIASES.items():
+        if normalize_stage_key(alias) == normalized:
+            return definition
+    return None
+
+def supported_stage_count():
+    return SUPPORTED_MAX_LEVEL
+
+def empty_stage_streaks():
+    return [0] * supported_stage_count()
+
+def normalize_stage_streaks(value):
+    if not isinstance(value, list):
+        return empty_stage_streaks()
+    streaks = [safe_int(item, 0) for item in value[:supported_stage_count()]]
+    if len(streaks) < supported_stage_count():
+        streaks.extend([0] * (supported_stage_count() - len(streaks)))
+    return streaks
+
+def calculate_stage_depth(streaks):
+    normalized = normalize_stage_streaks(streaks)
+    return sum(1 for value in normalized if safe_int(value, 0) > 0)
+
+def format_stage_streaks(streaks_by_stage):
+    if not isinstance(streaks_by_stage, dict):
+        streaks_by_stage = {}
+    parts = []
+    for stage in STAGE_DEFINITIONS:
+        value = streaks_by_stage.get(stage["key"])
+        if value is None:
+            for alias in stage["aliases"]:
+                if alias in streaks_by_stage:
+                    value = streaks_by_stage.get(alias)
+                    break
+        parts.append(f"{stage['short']}={safe_int(value, 0)}")
+    return ", ".join(parts)
+
+def format_house_counts(houses, *, include_legacy=True):
+    if not isinstance(houses, dict):
+        houses = {}
+    definitions = list(HOUSE_DEFINITIONS)
+    if include_legacy:
+        definitions.extend(
+            definition
+            for definition in LEGACY_HOUSE_DEFINITIONS
+            if safe_int(houses.get(definition["key"], 0), 0) > 0
+        )
+    return ", ".join(f"{definition['compact']}={safe_int(houses.get(definition['key'], 0), 0)}" for definition in definitions)
+
+def fetch_game_rules_safe():
+    try:
+        resp = requests.get(
+            f"{BASE_URL}/api/game/rules",
+            headers={"Accept": "application/json", "User-Agent": "OpenClaw-Bot/1.0"},
+            timeout=5,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception:
+        return None
+    return data if isinstance(data, dict) else None
+
+def normalize_rules_summary(raw):
+    if not isinstance(raw, dict):
+        return None
+    stages = raw.get("stages")
+    breakthrough = raw.get("breakthrough") if isinstance(raw.get("breakthrough"), dict) else {}
+    stage_count = len(stages) if isinstance(stages, list) else None
+    return {
+        "rulesVersion": safe_int(raw.get("rulesVersion"), None),
+        "maxLevel": safe_int(raw.get("maxLevel", raw.get("activeLevels", raw.get("currentLevelCount", stage_count))), None),
+        "activeLevels": safe_int(raw.get("activeLevels", raw.get("currentLevelCount", breakthrough.get("currentLevelCount", stage_count))), None),
+        "currentLevelCount": safe_int(raw.get("currentLevelCount", breakthrough.get("currentLevelCount", stage_count)), None),
+    }
+
+def format_rules_compatibility_lines(raw_rules):
+    rules = normalize_rules_summary(raw_rules)
+    if not rules:
+        return [
+            f"Skill supports: v{SUPPORTED_RULES_VERSION}, {SUPPORTED_MAX_LEVEL} levels",
+            "Server rules: unavailable",
+            "Compatible: unknown",
+        ]
+    server_version = rules.get("rulesVersion")
+    server_levels = rules.get("activeLevels") or rules.get("currentLevelCount") or rules.get("maxLevel")
+    compatible = server_version == SUPPORTED_RULES_VERSION and server_levels == SUPPORTED_MAX_LEVEL
+    return [
+        f"Server rules: v{server_version}, {server_levels} levels",
+        f"Skill supports: v{SUPPORTED_RULES_VERSION}, {SUPPORTED_MAX_LEVEL} levels",
+        f"Compatible: {'yes' if compatible else 'no'}",
+    ]
+
+def rules_are_compatible(raw_rules):
+    rules = normalize_rules_summary(raw_rules)
+    if not rules:
+        return False
+    server_version = rules.get("rulesVersion")
+    server_levels = rules.get("activeLevels") or rules.get("currentLevelCount") or rules.get("maxLevel")
+    return server_version == SUPPORTED_RULES_VERSION and server_levels == SUPPORTED_MAX_LEVEL
+
+def require_compatible_rules_for_play():
+    rules = fetch_game_rules_safe()
+    if rules_are_compatible(rules):
+        return
+
+    print("BTG play blocked: server rules are not compatible with this 10-level skill build.", file=sys.stderr)
+    for line in format_rules_compatibility_lines(rules):
+        print(line, file=sys.stderr)
+    print("No game was started.", file=sys.stderr)
+    sys.exit(1)
 
 def fetch_daily_rank_safe(profile_id):
     tz = load_bot_tz()
@@ -2420,6 +2728,17 @@ def normalize_rune_token(value):
         "red": "light_blue",
         "colour": "colour",
         "color": "color",
+        "glowingstar": "glowing_star",
+        "dizzystar": "dizzy_star",
+        "shootingstar": "shooting_star",
+        "milkyway": "milky_way",
+        "fullmoon": "full_moon",
+        "laughing": "laugh",
+        "laughter": "laugh",
+        "thinking": "think",
+        "surprised": "surprise",
+        "crying": "cry",
+        "sleeping": "sleep",
     }
     return alias_map.get(text, text)
 
@@ -2439,6 +2758,11 @@ def normalize_option_key(value):
     alias_map = {
         "lightblue": "light_blue",
         "red": "light_blue",
+        "glowingstar": "glowing_star",
+        "dizzystar": "dizzy_star",
+        "shootingstar": "shooting_star",
+        "milkyway": "milky_way",
+        "fullmoon": "full_moon",
     }
     return alias_map.get(text, text)
 
@@ -2740,6 +3064,31 @@ def select_best_proven_strategy(strategy_metrics):
     return best_mode, best_metric
 
 
+def select_best_tracked_alternative(strategy_metrics, excluded_modes=None, require_qualified=True):
+    excluded = set(excluded_modes or [])
+    candidates = []
+    for mode, metric in strategy_metrics.items():
+        if mode in excluded:
+            continue
+        if require_qualified and not strategy_metric_is_proven(metric):
+            continue
+        candidates.append((mode, metric))
+    if not candidates and require_qualified:
+        return select_best_tracked_alternative(strategy_metrics, excluded_modes=excluded, require_qualified=False)
+    if not candidates:
+        return None, None
+    candidates.sort(
+        key=lambda item: (
+            item[1].get("averageScore", 0),
+            item[1].get("topFiveAverage", 0),
+            item[1].get("highestScore", 0),
+            item[1].get("games", 0),
+        ),
+        reverse=True,
+    )
+    return candidates[0]
+
+
 def describe_strategy_data_quality(current_run_summary, current_historical_summary, proven_count, best_proven_metric):
     has_current_run = current_run_summary.get("games", 0) > 0
     has_older_baseline = (
@@ -2757,7 +3106,7 @@ def describe_strategy_data_quality(current_run_summary, current_historical_summa
         sample_note = "no current-run sample yet"
 
     if not has_current_run and proven_count == 0:
-        return "weak", "no current run and no proven strategy yet", has_older_baseline
+        return "weak", "no current run and no qualified strategy yet", has_older_baseline
     if has_current_run and not has_older_baseline:
         return (
             "moderate",
@@ -2767,13 +3116,13 @@ def describe_strategy_data_quality(current_run_summary, current_historical_summa
     if proven_count >= 3 and best_proven_metric and best_proven_metric.get("games", 0) >= 100:
         return (
             "strong",
-            f"{current_games} games across {current_rounds} current-run rounds; previous tracked strategy period exists, and at least 3 strategies are proven",
+            f"{current_games} games across {current_rounds} current-run rounds; previous tracked strategy period exists, and at least 3 strategies qualify",
             has_older_baseline,
         )
     if proven_count >= 1:
         return (
             "moderate",
-            f"{current_games} games across {current_rounds} current-run rounds; previous tracked strategy period exists, and at least one strategy is proven",
+            f"{current_games} games across {current_rounds} current-run rounds; previous tracked strategy period exists, and at least one strategy qualifies",
             has_older_baseline,
         )
     return "weak", "no strategy has reached 30 games across 3 rounds yet", has_older_baseline
@@ -2781,7 +3130,7 @@ def describe_strategy_data_quality(current_run_summary, current_historical_summa
 
 def compare_metric_line(label, current_metric, best_metric, key, best_mode=None):
     if not best_metric:
-        return f"- {label}: not enough proven data yet"
+        return f"- {label}: not enough qualified data yet"
     current_value = current_metric.get(key)
     best_value = best_metric.get(key)
     if current_value is None or best_value is None:
@@ -2796,26 +3145,67 @@ def strategy_metric_value(metric, key):
     return value if value is not None else "not recorded yet"
 
 
-def format_stage_reach_line(label, metric):
+def plural_game_count(count):
+    return f"{count} game" if count == 1 else f"{count} games"
+
+
+def format_deep_runs_lines(label, metric):
     reach = metric.get("stageReachCounts", {}) if isinstance(metric, dict) else {}
-    depth = metric.get("depthCounts", {}) if isinstance(metric, dict) else {}
-    if not any(safe_int(reach.get(str(level), 0), 0) for level in range(1, 8)):
-        return f"- {label}: not available because older stage-depth tracking was not recorded yet"
-    reach_text = ", ".join(f"{level}+={safe_int(reach.get(str(level), 0), 0)}" for level in range(1, 8))
-    return (
-        f"- {label}: {reach_text}; "
-        f"5/7={safe_int(depth.get('5', 0), 0)}, "
-        f"6/7={safe_int(depth.get('6', 0), 0)}, "
-        f"7/7={safe_int(depth.get('7', 0), 0)}"
-    )
+    if not any(safe_int(reach.get(str(level), 0), 0) for level in range(1, supported_stage_count() + 1)):
+        return [f"- {label}: not available because older stage-depth tracking was not recorded yet"]
+    lines = [f"- {label}:"]
+    for level in range(5, supported_stage_count() + 1):
+        count = safe_int(reach.get(str(level), 0), 0)
+        label_text = f"{level} stages correct" if level == supported_stage_count() else f"{level}+ stages correct"
+        lines.append(f"  - {label_text}: {plural_game_count(count)}")
+    return lines
 
 
-def choose_strategy_recommendation(current_strategy, current_metric, best_proven_mode, best_proven_metric, data_quality):
+def format_deep_runs_inline(metric):
+    reach = metric.get("stageReachCounts", {}) if isinstance(metric, dict) else {}
+    parts = []
+    for level in range(5, supported_stage_count() + 1):
+        label_text = f"{level} stages" if level == supported_stage_count() else f"{level}+ stages"
+        parts.append(f"{label_text} {safe_int(reach.get(str(level), 0), 0)}")
+    return ", ".join(parts)
+
+
+def format_recent_depth_inline(metric):
+    recent = metric.get("recentDepthCounts", {}) if isinstance(metric, dict) else {}
+    if not recent:
+        recent = {str(level): metric.get(f"recent10Round{level}Plus", 0) for level in range(5, supported_stage_count() + 1)}
+    parts = []
+    for level in range(5, supported_stage_count() + 1):
+        label_text = f"{level} stages" if level == supported_stage_count() else f"{level}+ stages"
+        parts.append(f"{label_text} {safe_int(recent.get(str(level), 0), 0)}")
+    return ", ".join(parts)
+
+
+def comparison_quality_label(qualified_count):
+    if qualified_count <= 1:
+        return "weak"
+    if qualified_count == 2:
+        return "moderate"
+    return "strong"
+
+
+def comparison_quality_line(qualified_count):
+    quality = comparison_quality_label(qualified_count)
+    if quality == "weak":
+        return "Comparison quality: weak -- only one strategy qualifies, so this is not a real strategy comparison yet."
+    if quality == "moderate":
+        return "Comparison quality: moderate -- 2 strategies qualify for comparison."
+    return f"Comparison quality: strong -- {qualified_count} strategies qualify for comparison."
+
+
+def choose_strategy_recommendation(current_strategy, current_metric, best_proven_mode, best_proven_metric, data_quality, qualified_count):
+    if qualified_count <= 1:
+        return "keep current strategy for now", "not enough qualified strategy comparisons yet"
     if not best_proven_mode or not best_proven_metric:
-        return "continue only as a deliberate experiment", "no proven local strategy exists yet"
+        return "keep current strategy for now", "not enough qualified strategy comparisons yet"
 
     if current_strategy == best_proven_mode:
-        return "stay with current strategy", f"{current_strategy} is the best proven strategy"
+        return "stay with current strategy", f"{current_strategy} has the strongest local tracked record so far"
 
     current_games = current_metric.get("games", 0)
     if data_quality == "weak" or current_games < 30:
@@ -2826,9 +3216,9 @@ def choose_strategy_recommendation(current_strategy, current_metric, best_proven
     current_top_five = current_metric.get("topFiveAverage", 0)
     best_top_five = best_proven_metric.get("topFiveAverage", 0)
     if current_average >= best_average and current_top_five >= best_top_five:
-        return "stay with current strategy", "current strategy matches or beats the best proven strategy on average and top 5 average"
+        return "stay with current strategy", "current strategy matches or beats the best tracked strategy so far on average and top 5 average"
 
-    return "return to the best proven strategy", f"{best_proven_mode} has the stronger proven record"
+    return "switch to the best tracked strategy so far", f"{best_proven_mode} has the stronger local tracked record"
 
 
 def exploration_candidate_reason(candidate_mode, candidate_metric, current_metric):
@@ -2866,8 +3256,7 @@ def exploration_candidate_reason(candidate_mode, candidate_metric, current_metri
     if candidate_metric.get("recent10RoundGames", 0) > 0 and candidate_depth > current_depth:
         return (
             "it has stronger recent stage-depth evidence than the current strategy "
-            f"({candidate_depth[0]}x5/7+, {candidate_depth[1]}x6/7+, {candidate_depth[2]}x7/7 vs "
-            f"{current_depth[0]}x5/7+, {current_depth[1]}x6/7+, {current_depth[2]}x7/7)"
+            f"({format_recent_depth_inline(candidate_metric)} vs {format_recent_depth_inline(current_metric)})"
         )
 
     if candidate_games < 30 or candidate_rounds < 3:
@@ -2892,6 +3281,9 @@ def strategy_exploration_candidate(current_strategy, strategy_metrics, best_prov
 
     candidates.sort(
         key=lambda item: (
+            item[1].get("recent10Round10Plus", 0),
+            item[1].get("recent10Round9Plus", 0),
+            item[1].get("recent10Round8Plus", 0),
             item[1].get("recent10Round6Plus", 0),
             item[1].get("recent10Round5Plus", 0),
             item[1].get("topFiveAverage", 0),
@@ -2902,6 +3294,108 @@ def strategy_exploration_candidate(current_strategy, strategy_metrics, best_prov
         reverse=True,
     )
     return candidates[0]
+
+
+def strategy_experiment_value(current_strategy, mode, metric, best_tracked_metric, max_games):
+    games = metric.get("games", 0)
+    rounds = metric.get("rounds", 0)
+    recent_games = metric.get("recent10RoundGames", 0)
+    recent_rounds = metric.get("recent10Rounds", 0)
+    top_five = metric.get("topFiveAverage", 0)
+    peak = metric.get("highestScore", 0)
+    average = metric.get("averageScore", 0)
+    best_top_five = best_tracked_metric.get("topFiveAverage", 0) if isinstance(best_tracked_metric, dict) else 0
+    best_peak = best_tracked_metric.get("highestScore", 0) if isinstance(best_tracked_metric, dict) else 0
+
+    qualified = strategy_metric_is_proven(metric)
+    not_enough_data = not qualified
+    no_recent_data = recent_games == 0
+    limited_recent_data = 0 < recent_games < 30 or 0 < recent_rounds < 3
+    fewer_games = max_games > 0 and games < max_games * 0.65
+    high_score_potential = (
+        top_five > 0 and best_top_five > 0 and top_five >= best_top_five * 0.65
+    ) or (
+        peak > 0 and best_peak > 0 and peak >= best_peak * 0.55
+    )
+    weak_recent = (
+        recent_games >= 30
+        and average > 0
+        and metric.get("recent10RoundAverage", 0) < average * 0.80
+        and not high_score_potential
+    )
+
+    if weak_recent and not (not_enough_data or fewer_games):
+        return None
+
+    score = 0
+    reasons = []
+    if not_enough_data:
+        score += 120
+        reasons.append("not enough data yet")
+    if no_recent_data:
+        score += 100
+        reasons.append("due for testing: not tried recently")
+    elif limited_recent_data:
+        score += 70
+        reasons.append("due for testing: less recent data")
+    if fewer_games:
+        score += 60
+        reasons.append("fewer tracked games than the main strategies")
+    if high_score_potential:
+        score += 55
+        reasons.append("worth testing for high-score potential")
+    if games > 0:
+        learning_gap = max(max_games - games, 0)
+        score += min(40, learning_gap // 20)
+    if mode == best_tracked_metric.get("mode") if isinstance(best_tracked_metric, dict) else False:
+        score -= 25
+
+    if not reasons:
+        reasons.append("gives more learning value than repeating the current strategy")
+    return score, reasons
+
+
+def select_suggested_experiment(current_strategy, strategy_metrics, best_tracked_mode, best_tracked_metric):
+    max_games = max((metric.get("games", 0) for metric in strategy_metrics.values()), default=0)
+    candidates = []
+    for mode, metric in strategy_metrics.items():
+        if mode == current_strategy:
+            continue
+        valued = strategy_experiment_value(current_strategy, mode, metric, best_tracked_metric or {}, max_games)
+        if valued is None:
+            continue
+        score, reasons = valued
+        if mode == best_tracked_mode and current_strategy != best_tracked_mode:
+            score -= 50
+        candidates.append((score, mode, metric, reasons))
+
+    if not candidates:
+        return None, None, []
+
+    candidates.sort(
+        key=lambda item: (
+            item[0],
+            item[2].get("topFiveAverage", 0),
+            item[2].get("highestScore", 0),
+            -item[2].get("games", 0),
+        ),
+        reverse=True,
+    )
+    _, mode, metric, reasons = candidates[0]
+    return mode, metric, reasons
+
+
+def format_experiment_reason(mode, reasons):
+    if not mode:
+        return "No clear experiment is due from the local strategy history."
+    if not reasons:
+        return f"{mode} gives more learning value than continuing the current strategy."
+    reason_text = "; ".join(reasons)
+    if reason_text.startswith("due for testing:"):
+        return f"{mode} is {reason_text}."
+    if reason_text.startswith("gives "):
+        return f"{mode} {reason_text}."
+    return f"{mode} is due for testing because {reason_text}."
 
 
 def describe_exploration_candidate(candidate_metric, best_proven_metric):
@@ -2915,18 +3409,18 @@ def describe_exploration_candidate(candidate_metric, best_proven_metric):
         return "it is still untested locally, so this would be pure exploration rather than evidence"
     if games < 30 or rounds < 3:
         if top_five > 0:
-            return "it has shown promising upside, but it is still lightly tested and less proven than the main recommendation"
+            return "it has shown promising upside, but it is still lightly tested compared with the main recommendation"
         return "it is lightly tested locally, so this would mainly gather missing evidence"
     if top_five > best_top_five:
-        return "it has a stronger recorded top 5 average, but less proven consistency than the main recommendation"
+        return "it has a stronger recorded top 5 average, but a weaker local tracked record than the main recommendation"
     if recent_depth > 0:
-        return "it has recent stage-depth signs, but less proof than the best proven strategy"
-    return "it has some local history, but less proof than the best proven strategy"
+        return "it has recent stage-depth signs, but a weaker local tracked record than the best tracked strategy so far"
+    return "it has some local history, but a weaker local tracked record than the best tracked strategy so far"
 
 
 def should_offer_strategy_exploration(current_strategy, current_metric, best_proven_mode, best_proven_metric, recommendation):
     if not best_proven_mode or not best_proven_metric:
-        return False, "no best proven strategy exists yet"
+        return False, "no best tracked strategy exists yet"
 
     current_games = current_metric.get("games", 0)
     if current_games < 30:
@@ -2952,18 +3446,21 @@ def should_offer_strategy_exploration(current_strategy, current_metric, best_pro
             and current_metric.get("recent10Round5Plus", 0) == 0
             and current_metric.get("recent10Round6Plus", 0) == 0
             and current_metric.get("recent10Round7Plus", 0) == 0
+            and current_metric.get("recent10Round8Plus", 0) == 0
+            and current_metric.get("recent10Round9Plus", 0) == 0
+            and current_metric.get("recent10Round10Plus", 0) == 0
         )
 
     if recommendation == "continue only as a deliberate experiment":
         return True, "the main recommendation is already experimental"
     if clearly_behind:
-        return True, "current strategy is clearly behind the best proven strategy"
+        return True, "current strategy is clearly behind the best tracked strategy so far"
     if stale_recent:
         return True, "recent 10-round window looks stale against the current strategy tracked history"
     return False, "no exploration trigger met"
 
 
-def build_optional_exploration_line(current_strategy, strategy_metrics, best_proven_mode, best_proven_metric, recommendation):
+def build_optional_exploration_lines(current_strategy, strategy_metrics, best_proven_mode, best_proven_metric, recommendation):
     current_metric = strategy_metrics.get(current_strategy, {})
     should_offer, trigger_reason = should_offer_strategy_exploration(
         current_strategy,
@@ -2973,7 +3470,7 @@ def build_optional_exploration_line(current_strategy, strategy_metrics, best_pro
         recommendation,
     )
     if not should_offer:
-        return None
+        return []
 
     candidate_mode, candidate_metric, candidate_reason = strategy_exploration_candidate(
         current_strategy,
@@ -2981,42 +3478,101 @@ def build_optional_exploration_line(current_strategy, strategy_metrics, best_pro
         best_proven_mode,
     )
     if not candidate_mode or not candidate_metric:
-        return None
-
-    candidate_description = describe_exploration_candidate(candidate_metric, best_proven_metric)
-    supporting_details = []
-    if candidate_metric.get("recent10RoundGames", 0) > 0:
-        supporting_details.append(
-            f"recent 10-round average {candidate_metric['recent10RoundAverage']}"
-        )
-        if candidate_metric.get("recent10Round5Plus", 0) or candidate_metric.get("recent10Round6Plus", 0):
-            supporting_details.append(
-                f"recent depth {candidate_metric['recent10Round5Plus']}x5/7+, {candidate_metric['recent10Round6Plus']}x6/7+"
-            )
-    if candidate_metric.get("medianScore") is not None:
-        supporting_details.append(f"median {candidate_metric['medianScore']}")
-    if candidate_metric.get("topFiveAverage", 0) > 0:
-        supporting_details.append(f"top 5 average {candidate_metric.get('topFiveAverage', 0)}")
-
-    details_text = f" ({', '.join(supporting_details)})" if supporting_details else ""
+        return []
 
     if candidate_metric.get("games", 0) <= 0:
-        return (
-            f"- Optional exploration: if you want to test something new, try {candidate_mode} next "
-            f"because {trigger_reason}; specific reason: {candidate_reason}, so this would gather fresh evidence rather than rely on proof"
-        )
+        return [
+            f"- Suggested experiment: {candidate_mode}",
+            "- Reason: this would gather fresh local evidence for an untested strategy.",
+        ]
 
-    return (
-        f"- Optional exploration: if you want to test something new, try {candidate_mode} next "
-        f"because {trigger_reason}; specific reason: {candidate_reason}; {candidate_description}{details_text}"
-    )
+    if best_proven_mode:
+        return [
+            f"- Suggested experiment: {candidate_mode}",
+            f"- Reason: {candidate_mode} has shown stronger high-score potential than the current strategy, but {best_proven_mode} remains the stronger recommendation based on local tracked results.",
+        ]
+    return [
+        f"- Suggested experiment: {candidate_mode}",
+        f"- Reason: {candidate_reason}.",
+    ]
 
 
-def build_strategy_review_lines(api_key, profile_id):
+def collect_strategy_review_context(api_key, profile_id):
     stats = fetch_player_stats_for_review(api_key, profile_id)
     current_strategy = load_strategy()
     level_theme_right = extract_level_theme_right(stats)
     trial_state = load_strategy_trial_state(create_if_missing=False)
+    strategy_stats = load_strategy_stats()
+    current_run = strategy_stats.get("currentRun", {})
+    current_run_mode = current_run.get("mode")
+    current_run_summary = summarize_strategy_summary(current_run if current_run_mode == current_strategy else {})
+    historical_summaries = strategy_stats.get("strategies", {})
+    strategy_modes = ["random", "hot-pick-player", "hot-pick-computer", "pick-due", "cold-avoid"]
+    current_historical_summary = summarize_strategy_summary(historical_summaries.get(current_strategy, {}))
+
+    strategy_metrics = {}
+    for mode in strategy_modes:
+        metric = summarize_strategy_summary(historical_summaries.get(mode, {}))
+        metric["mode"] = mode
+        strategy_metrics[mode] = metric
+
+    best_proven_mode, best_proven_metric = select_best_proven_strategy(strategy_metrics)
+    proven_count = sum(1 for metric in strategy_metrics.values() if strategy_metric_is_proven(metric))
+    data_quality, data_quality_reason, has_older_baseline = describe_strategy_data_quality(
+        current_run_summary,
+        current_historical_summary,
+        proven_count,
+        best_proven_metric,
+    )
+    recommendation, recommendation_reason = choose_strategy_recommendation(
+        current_strategy,
+        current_historical_summary,
+        best_proven_mode,
+        best_proven_metric,
+        data_quality,
+        proven_count,
+    )
+    comparison_mode, comparison_metric = select_best_tracked_alternative(
+        strategy_metrics,
+        excluded_modes=[current_strategy] if current_strategy == best_proven_mode else [],
+    )
+    if current_strategy != best_proven_mode:
+        comparison_mode, comparison_metric = best_proven_mode, best_proven_metric
+    experiment_mode, experiment_metric, experiment_reasons = select_suggested_experiment(
+        current_strategy,
+        strategy_metrics,
+        best_proven_mode,
+        best_proven_metric,
+    )
+
+    return {
+        "stats": stats,
+        "current_strategy": current_strategy,
+        "level_theme_right": level_theme_right,
+        "trial_state": trial_state,
+        "current_run_summary": current_run_summary,
+        "current_historical_summary": current_historical_summary,
+        "strategy_metrics": strategy_metrics,
+        "best_proven_mode": best_proven_mode,
+        "best_proven_metric": best_proven_metric,
+        "proven_count": proven_count,
+        "data_quality": data_quality,
+        "data_quality_reason": data_quality_reason,
+        "has_older_baseline": has_older_baseline,
+        "recommendation": recommendation,
+        "recommendation_reason": recommendation_reason,
+        "comparison_mode": comparison_mode,
+        "comparison_metric": comparison_metric,
+        "experiment_mode": experiment_mode,
+        "experiment_metric": experiment_metric,
+        "experiment_reasons": experiment_reasons,
+    }
+
+
+def build_trial_strategy_review_lines(context):
+    current_strategy = context["current_strategy"]
+    level_theme_right = context["level_theme_right"]
+    trial_state = context["trial_state"]
     if trial_state is not None and trial_state.get("status") == "active":
         strategies = trial_state.get("strategies", STRATEGY_TRIAL_STRATEGIES)
         trial_stats = trial_state.get("trialStats", {})
@@ -3090,57 +3646,54 @@ def build_strategy_review_lines(api_key, profile_id):
         lines.append("https://beforethoughtgame.com/support")
         return lines
 
-    strategy_stats = load_strategy_stats()
-    current_run = strategy_stats.get("currentRun", {})
-    current_run_mode = current_run.get("mode")
-    current_run_summary = summarize_strategy_summary(current_run if current_run_mode == current_strategy else {})
-    historical_summaries = strategy_stats.get("strategies", {})
-    strategy_modes = ["random", "hot-pick-player", "hot-pick-computer", "pick-due", "cold-avoid"]
-    current_historical_summary = summarize_strategy_summary(historical_summaries.get(current_strategy, {}))
+    return None
 
-    strategy_metrics = {}
-    for mode in strategy_modes:
-        strategy_metrics[mode] = summarize_strategy_summary(historical_summaries.get(mode, {}))
 
-    best_proven_mode, best_proven_metric = select_best_proven_strategy(strategy_metrics)
-    proven_count = sum(1 for metric in strategy_metrics.values() if strategy_metric_is_proven(metric))
-    data_quality, data_quality_reason, has_older_baseline = describe_strategy_data_quality(
-        current_run_summary,
-        current_historical_summary,
-        proven_count,
-        best_proven_metric,
-    )
-    recommendation, recommendation_reason = choose_strategy_recommendation(
-        current_strategy,
-        current_historical_summary,
-        best_proven_mode,
-        best_proven_metric,
-        data_quality,
-    )
+def build_strategy_review_detail_lines(context):
+    current_strategy = context["current_strategy"]
+    level_theme_right = context["level_theme_right"]
+    current_run_summary = context["current_run_summary"]
+    current_historical_summary = context["current_historical_summary"]
+    strategy_metrics = context["strategy_metrics"]
+    best_proven_mode = context["best_proven_mode"]
+    best_proven_metric = context["best_proven_metric"]
+    proven_count = context["proven_count"]
+    data_quality = context["data_quality"]
+    data_quality_reason = context["data_quality_reason"]
+    has_older_baseline = context["has_older_baseline"]
+    recommendation = context["recommendation"]
+    recommendation_reason = context["recommendation_reason"]
+    experiment_mode = context["experiment_mode"]
+    experiment_reasons = context["experiment_reasons"]
 
     best_proven_label = best_proven_mode if best_proven_mode else "none yet"
+    comparison_quality = comparison_quality_label(proven_count)
 
     lines = [
         f"- Current strategy: {current_strategy}",
         f"- Data quality: {data_quality} ({data_quality_reason})",
-        "- Evidence scope: local strategy evidence recorded by this bot only; it may cover only data since tracking began, not every historical game played on the BTG server",
-        "- Proven rule: a strategy needs at least 30 games across 3 rounds to count as proven",
-        f"- Best proven strategy: {best_proven_label}",
+        "- Evidence scope: this is based only on this bot's locally recorded strategy history. It may not include all historical BTG server games, other bots, or human players.",
+        "- Qualification rule: a strategy needs at least 30 games across 3 rounds before it is included in comparisons.",
+        f"- Qualified strategies compared: {proven_count}",
+        f"- {comparison_quality_line(proven_count)}",
+        f"- Best tracked strategy so far: {best_proven_label}",
     ]
 
     if current_run_summary["games"] > 0:
+        lines.append(f"- Current run: results since {current_strategy} was selected")
         lines.append(
-            f"- Current run: {current_run_summary['games']} games across {current_run_summary['rounds']} rounds, average {current_run_summary['averageScore']}, median {strategy_metric_value(current_run_summary, 'medianScore')}, peak {current_run_summary['highestScore']}, top 5 average {current_run_summary['topFiveAverage']}"
+            f"- Current run totals: {current_run_summary['games']} games across {current_run_summary['rounds']} rounds, average {current_run_summary['averageScore']}, median {strategy_metric_value(current_run_summary, 'medianScore')}, peak {current_run_summary['highestScore']}, top 5 average {current_run_summary['topFiveAverage']}"
         )
     else:
-        lines.append("- Current run: no completed local round yet")
+        lines.append(f"- Current run: results since {current_strategy} was selected; no completed local round yet")
 
     if current_historical_summary["games"] > 0:
+        lines.append(f"- All {current_strategy} history: all locally recorded {current_strategy} results")
         lines.append(
-            f"- Current strategy tracked history: {current_historical_summary['games']} games across {current_historical_summary['rounds']} rounds, average {current_historical_summary['averageScore']}, median {strategy_metric_value(current_historical_summary, 'medianScore')}, peak {current_historical_summary['highestScore']}, top 5 average {current_historical_summary['topFiveAverage']}"
+            f"- All {current_strategy} history totals: {current_historical_summary['games']} games across {current_historical_summary['rounds']} rounds, average {current_historical_summary['averageScore']}, median {strategy_metric_value(current_historical_summary, 'medianScore')}, peak {current_historical_summary['highestScore']}, top 5 average {current_historical_summary['topFiveAverage']}"
         )
     else:
-        lines.append("- Current strategy tracked history: no local tracked history yet")
+        lines.append(f"- All {current_strategy} history: no local tracked history yet")
 
     if current_run_summary["games"] > 0 and not has_older_baseline:
         lines.append(
@@ -3151,10 +3704,18 @@ def build_strategy_review_lines(api_key, profile_id):
             f"- Current strategy baseline: previous tracked {current_strategy} period exists in local history"
         )
 
-    lines.append(compare_metric_line("Current vs best proven average", current_historical_summary, best_proven_metric, "averageScore"))
-    lines.append(compare_metric_line("Current vs best proven peak", current_historical_summary, best_proven_metric, "highestScore"))
-    lines.append(compare_metric_line("Current vs best proven top 5 average", current_historical_summary, best_proven_metric, "topFiveAverage"))
+    lines.append(compare_metric_line("Current vs best tracked average", current_historical_summary, best_proven_metric, "averageScore"))
+    lines.append(compare_metric_line("Current vs best tracked peak", current_historical_summary, best_proven_metric, "highestScore"))
+    lines.append(compare_metric_line("Current vs best tracked top 5 average", current_historical_summary, best_proven_metric, "topFiveAverage"))
     lines.append(compare_metric_line("Median comparison", current_historical_summary, best_proven_metric, "medianScore", best_proven_mode))
+
+    lines.extend([
+        "- Metric notes:",
+        "  - Average = overall score performance",
+        "  - Median = typical middle score",
+        "  - Peak = best single game",
+        "  - Top 5 average = high-score potential",
+    ])
 
     if current_historical_summary["recent100Games"] > 0:
         lines.append(
@@ -3165,33 +3726,34 @@ def build_strategy_review_lines(api_key, profile_id):
 
     if current_historical_summary["recent10RoundGames"] > 0:
         lines.append(
-            f"- Current recent 10 rounds: {current_historical_summary['recent10RoundGames']} games, average {current_historical_summary['recent10RoundAverage']}, median {current_historical_summary['recent10RoundMedian']}, 5/7+ {current_historical_summary['recent10Round5Plus']}, 6/7+ {current_historical_summary['recent10Round6Plus']}, 7/7 {current_historical_summary['recent10Round7Plus']}"
+            f"- Current recent 10 rounds: {current_historical_summary['recent10RoundGames']} games, average {current_historical_summary['recent10RoundAverage']}, median {current_historical_summary['recent10RoundMedian']}, {format_recent_depth_inline(current_historical_summary)}"
         )
     else:
         lines.append("- Current recent 10 rounds: not enough locally recorded detail yet")
 
-    lines.append(format_stage_reach_line("Current stage reach", current_historical_summary))
+    lines.extend(format_deep_runs_lines("Current strategy deep runs", current_historical_summary))
     if best_proven_metric and best_proven_mode != current_strategy:
-        lines.append(format_stage_reach_line(f"Best proven stage reach ({best_proven_mode})", best_proven_metric))
+        lines.extend(format_deep_runs_lines(f"Best tracked strategy deep runs ({best_proven_mode})", best_proven_metric))
 
-    lines.append(f"- Recommendation: {recommendation}")
-    lines.append(f"- Recommendation reason: {recommendation_reason}")
-    if recommendation == "return to the best proven strategy" and best_proven_mode:
-        lines.append(f"- Action: /btg strategy {best_proven_mode}")
-    elif recommendation == "stay with current strategy":
-        lines.append(f"- Action: keep /btg strategy {current_strategy}")
+    if comparison_quality == "weak":
+        lines.append("- Recommendation: keep current strategy for now")
+        lines.append("- Reason: not enough qualified strategy comparisons yet")
+        lines.append("- Suggested experiment: test another strategy for 3-10 rounds")
     else:
+        lines.append(f"- Recommendation: {recommendation}")
+        if best_proven_mode:
+            lines.append(f"- Recommended strategy: {best_proven_mode}")
+        lines.append(f"- Reason: {recommendation_reason}")
+    if recommendation == "switch to the best tracked strategy so far" and best_proven_mode and comparison_quality != "weak":
+        lines.append(f"- Action: /btg strategy {best_proven_mode}")
+    elif recommendation == "stay with current strategy" and comparison_quality != "weak":
+        lines.append(f"- Action: keep /btg strategy {current_strategy}")
+    elif comparison_quality != "weak":
         lines.append("- Action: keep this only if you deliberately want more experiment data")
 
-    optional_exploration_line = build_optional_exploration_line(
-        current_strategy,
-        strategy_metrics,
-        best_proven_mode,
-        best_proven_metric,
-        recommendation,
-    )
-    if optional_exploration_line:
-        lines.append(optional_exploration_line)
+    if experiment_mode:
+        lines.append(f"- Suggested experiment: {experiment_mode}")
+        lines.append(f"- Suggested experiment reason: {format_experiment_reason(experiment_mode, experiment_reasons)}")
 
     review_breakthrough_lines = format_level_theme_right_review_lines(level_theme_right)
     if review_breakthrough_lines:
@@ -3203,6 +3765,113 @@ def build_strategy_review_lines(api_key, profile_id):
     lines.append("https://beforethoughtgame.com/support")
 
     return lines
+
+
+def build_strategy_review_short_lines(context):
+    current_strategy = context["current_strategy"]
+    current_run_summary = context["current_run_summary"]
+    current_historical_summary = context["current_historical_summary"]
+    best_tracked_mode = context["best_proven_mode"]
+    best_tracked_metric = context["best_proven_metric"]
+    comparison_mode = context["comparison_mode"]
+    comparison_metric = context["comparison_metric"]
+    experiment_mode = context["experiment_mode"]
+    experiment_reasons = context["experiment_reasons"]
+    proven_count = context["proven_count"]
+    recommendation = context["recommendation"]
+
+    best_label = best_tracked_mode or "none yet"
+    comparison_label = comparison_mode or "none yet"
+    if current_strategy == best_tracked_mode:
+        recommendation_text = f"Keep {current_strategy}."
+        why_text = f"{current_strategy} remains the strongest tracked strategy."
+        action_text = f"keep /btg strategy {current_strategy}"
+    elif best_tracked_mode:
+        recommendation_text = f"Switch to {best_tracked_mode}."
+        why_text = f"{best_tracked_mode} has the strongest local tracked record."
+        action_text = f"/btg strategy {best_tracked_mode}"
+    else:
+        recommendation_text = "Keep current strategy for now."
+        why_text = "Not enough qualified strategy comparisons yet."
+        action_text = f"keep /btg strategy {current_strategy}"
+
+    lines = [
+        f"Current strategy: {current_strategy}",
+        f"Best tracked strategy: {best_label}",
+        f"Strategies compared: {proven_count}",
+        "",
+        "Recommendation:",
+        recommendation_text,
+        "",
+        "Why:",
+        why_text,
+        "",
+        "Comparison:",
+    ]
+
+    if comparison_metric:
+        lines.extend([
+            f"- Average: {current_strategy} {current_historical_summary['averageScore']} vs {comparison_label} {comparison_metric.get('averageScore', 0)}",
+            f"- Best score: {current_strategy} {current_historical_summary['highestScore']} vs {comparison_label} {comparison_metric.get('highestScore', 0)}",
+            f"- Top 5 average: {current_strategy} {current_historical_summary['topFiveAverage']} vs {comparison_label} {comparison_metric.get('topFiveAverage', 0)}",
+        ])
+    else:
+        lines.append("- Not enough qualified comparison data yet")
+
+    lines.extend([
+        "",
+        "Current run:",
+        (
+            f"- {current_run_summary['games']} games, average {current_run_summary['averageScore']}, "
+            f"median {strategy_metric_value(current_run_summary, 'medianScore')}, best {current_run_summary['highestScore']}"
+        ),
+    ])
+    if current_historical_summary["recent100Games"] > 0:
+        lines.append(
+            f"- Recent 100 games: average {current_historical_summary['recent100Average']}, median {current_historical_summary['recent100Median']}"
+        )
+    else:
+        lines.append("- Recent 100 games: not enough data yet")
+    lines.append(f"- Deep runs: {format_deep_runs_inline(current_run_summary)}")
+
+    lines.extend([
+        "",
+        "Suggested experiment:",
+    ])
+    if experiment_mode:
+        lines.append(f"Try {experiment_mode} next.")
+        lines.extend([
+            "",
+            "Why:",
+            format_experiment_reason(experiment_mode, experiment_reasons),
+        ])
+    else:
+        lines.append("No clear experiment is due right now.")
+        lines.extend(["", "Why:", "The local strategy history does not show a useful alternative to test yet."])
+
+    lines.extend([
+        "",
+        "Action:",
+        action_text,
+    ])
+    if experiment_mode:
+        lines.append(f"or test /btg strategy {experiment_mode}")
+    lines.extend([
+        "",
+        "More detail:",
+        "/btg review strategy detail",
+    ])
+    return lines
+
+
+def build_strategy_review_lines(api_key, profile_id, *, detail=False):
+    context = collect_strategy_review_context(api_key, profile_id)
+    trial_lines = build_trial_strategy_review_lines(context)
+    if trial_lines is not None:
+        return trial_lines
+    if detail:
+        return build_strategy_review_detail_lines(context)
+    return build_strategy_review_short_lines(context)
 
 def load_key(path, idx):
     migrate_legacy_state()
@@ -4112,7 +4781,7 @@ def play_one_game(api_key, strategy_data):
 
     return {
         "finalScore": data.get("finalScore", 0),
-        "streaks": data.get("streaksByStage", [0] * 7),
+        "streaks": data.get("streaksByStage", empty_stage_streaks()),
         "bonuses": data.get("bonusesEarned", {}),
         "levelThemeRight": data.get("levelThemeRight"),
         "runeFound": data.get("rune_found") is True,
@@ -4139,6 +4808,7 @@ def print_help_entry(command, description, indent=False):
 def cmd_help_examples():
     print("/btg help examples")
     print("Copy/paste BTG examples using the preferred syntax.")
+    print("BTG has 10 levels. Levels 8-10 are Celestial, Animals, and Faces.")
     print()
     print("PLAY")
     print_help_entry("/btg play", "Run a 10-game BTG round")
@@ -4173,9 +4843,12 @@ def cmd_help_examples():
     print()
     print("STRATEGY")
     print_help_entry("/btg review strategy", "Review the current strategy options")
+    print_help_entry("/btg review strategy detail", "Show full strategy review notes")
+    print_help_entry("/btg review daily", "Show a short daily performance review")
     print_help_entry("/btg strategy", "Show the active strategy")
     print_help_entry("/btg strategy pick-due", "Change the strategy to pick-due")
     print_help_entry("/btg strategy trial 5day", "Start the 5-day strategy trial")
+    print_help_entry("/btg strategy trial start", "Alias for starting the 5-day strategy trial")
     print_help_entry("/btg strategy trial status", "Show the strategy trial status")
     print_help_entry("/btg strategy trial stop", "Stop the strategy trial")
     print()
@@ -4205,6 +4878,8 @@ def cmd_help(args=None):
 
     print("/btg help")
     print("Short BTG command reference. Use /btg help examples for copy/paste examples.")
+    print("BTG currently has 10 levels: Full House is 7/7, Celestial House is 8/8, Animal House is 9/9, and Face House is 10/10.")
+    print("Runes can now be up to 10 tokens.")
     print()
     print("PLAY")
     print("Manual play and support.")
@@ -4250,6 +4925,8 @@ def cmd_help(args=None):
     print("STRATEGY")
     print("Review or change the active play strategy.")
     print_help_entry("/btg review strategy", "Review the current strategy options")
+    print_help_entry("/btg review strategy detail", "Show full strategy review notes")
+    print_help_entry("/btg review daily", "Show a short daily performance review")
     print_help_entry("/btg strategy", "Show the active strategy")
     print_help_entry("/btg strategy random", "Change the strategy to random")
     print_help_entry("/btg strategy hot-pick-player", "Change the strategy to hot-pick-player")
@@ -4257,6 +4934,7 @@ def cmd_help(args=None):
     print_help_entry("/btg strategy pick-due", "Change the strategy to pick-due")
     print_help_entry("/btg strategy cold-avoid", "Change the strategy to cold-avoid")
     print_help_entry("/btg strategy trial 5day", "Start the 5-day strategy trial")
+    print_help_entry("/btg strategy trial start", "Alias for starting the 5-day strategy trial")
     print_help_entry("/btg strategy trial status", "Show the strategy trial status")
     print_help_entry("/btg strategy trial stop", "Stop the strategy trial")
     print()
@@ -4291,11 +4969,19 @@ def cmd_support():
 def cmd_runes_summary(api_key, profile_id):
     cmd_runes(api_key, profile_id)
 
-def cmd_review_strategy(api_key, profile_id):
+def cmd_review_strategy(api_key, profile_id, detail=False):
     print_player_identity(api_key, profile_id)
-    print("BTG Review Strategy")
+    print("BTG Strategy Review Detail" if detail else "BTG Strategy Review")
     print()
-    for line in build_strategy_review_lines(api_key, profile_id):
+    for line in build_strategy_review_lines(api_key, profile_id, detail=detail):
+        print(line)
+
+
+def cmd_review_daily(api_key, profile_id):
+    print_player_identity(api_key, profile_id)
+    print("BTG Daily Review")
+    print()
+    for line in build_daily_review_lines(api_key, profile_id):
         print(line)
 
 
@@ -4454,6 +5140,9 @@ def cmd_boards(api_key, profile_id, type_arg, date_str, limit):
     print(f"HOUSE type={type_arg} limit={limit}")
     cat_map = [
         ("fullHouse", "FULL_HOUSE"),
+        ("celestialHouse", "CELESTIAL_HOUSE"),
+        ("animalHouse", "ANIMAL_HOUSE"),
+        ("faceHouse", "FACE_HOUSE"),
         ("sixHouse", "SIX_HOUSE"),
         ("fiveHouse", "FIVE_HOUSE"),
         ("halfHouse", "HALF_HOUSE"),
@@ -4473,15 +5162,7 @@ def cmd_boards(api_key, profile_id, type_arg, date_str, limit):
     print()
     print(f"STREAKS type={type_arg} limit={limit}")
 
-    streak_sections = [
-        ("BLACK_WHITE", "blackWhite"),
-        ("VEHICLES", "vehicles"),
-        ("SUIT", "suit"),
-        ("HANDS", "hands"),
-        ("DICE", "dice"),
-        ("SHAPES", "shapes"),
-        ("COLOUR", "colour"),
-    ]
+    streak_sections = [(stage["short"].upper().replace("/", "_"), stage["key"]) for stage in STAGE_DEFINITIONS]
 
     for label, api_key in streak_sections:
         print(label)
@@ -4513,6 +5194,7 @@ def score_or_zero(value):
     return value if isinstance(value, (int, float)) else 0
 
 def cmd_play(api_key, profile_id, trigger_source="manual"):
+    require_compatible_rules_for_play()
     n = 10
     results = []
     lines = []
@@ -4570,11 +5252,11 @@ def cmd_play(api_key, profile_id, trigger_source="manual"):
             return {"played": False, "reason": "unauthorized"}
 
         if "error" in r:
-            lines.append(f"{i+1}/{n} score=0 streaks=[0,0,0,0,0,0,0] bonuses={{}}")
+            lines.append(f"{i+1}/{n} score=0 streaks={empty_stage_streaks()} bonuses={{}}")
             continue
 
         sc = r["finalScore"] if r["finalScore"] is not None else 0
-        st = r["streaks"] if isinstance(r["streaks"], list) else [0] * 7
+        st = normalize_stage_streaks(r["streaks"])
         bn = fmt_bonuses(r["bonuses"])
         if sc > best:
             best = sc
@@ -4620,8 +5302,8 @@ def cmd_play(api_key, profile_id, trigger_source="manual"):
     print(f"Win rate: {scoreboard.get('winRate', 0)}%")
     print(f"Games played: {scoreboard.get('gamesPlayed', 0)}")
     print(f"Total wins: {scoreboard.get('totalWins', 0)}")
-    print(f"Best stage streaks: BW={streaks.get('blackWhite', 0)}, Vehicles={streaks.get('vehicles', 0)}, Suit={streaks.get('suit', 0)}, Hands={streaks.get('hands', 0)}, Dice={streaks.get('dice', 0)}, Shapes={streaks.get('shapes', 0)}, Colour={streaks.get('colour', 0)}")
-    print(f"Houses: Full={houses.get('fullHouse', 0)}, Six={houses.get('sixHouse', 0)}, Five={houses.get('fiveHouse', 0)}, Half={houses.get('halfHouse', 0)}, High={houses.get('highHouse', 0)}, Low={houses.get('lowHouse', 0)}, SixSeven={houses.get('sixSeven', 0)}")
+    print(f"Best stage streaks: {format_stage_streaks(streaks)}")
+    print(f"Houses: {format_house_counts(houses)}")
     print(f"Current strategy: {load_strategy()}")
     post_play_level_theme_right = extract_level_theme_right(post_play_stats)
     level_theme_right_status_lines = format_level_theme_right_status_lines(post_play_level_theme_right)
@@ -4774,15 +5456,7 @@ def cmd_pickstats(api_key, profile_id):
     comp_picks = stats.get("computerPicks", {})
 
     def format_stage_name(stage):
-        return (
-            stage.replace("BlackWhite", "Black/White")
-            .replace("Vehicles", "Vehicles")
-            .replace("Suit", "Suit")
-            .replace("Hands", "Hands")
-            .replace("Dice", "Dice")
-            .replace("Shapes", "Shapes")
-            .replace("Colour", "Colour")
-        )
+        return stage_label(stage)
 
     print_player_identity(api_key, profile_id)
     print("Pick stats:")
@@ -4864,6 +5538,7 @@ def cmd_status(api_key, profile_id):
     trial_lines = build_strategy_trial_status_lines()
     performance_lines = build_status_performance_lines(sb)
     runes_result = fetch_runes_summary(api_key)
+    rules = fetch_game_rules_safe()
 
     print_player_identity(api_key, profile_id)
     print("BTG Status")
@@ -4874,8 +5549,12 @@ def cmd_status(api_key, profile_id):
     print(f"Win rate: {sb.get('winRate', 0)}%")
     print(f"Games played: {sb.get('gamesPlayed', 0)}")
     print(f"Total wins: {sb.get('totalWins', 0)}")
-    print(f"Best stage streaks: BW={streaks.get('blackWhite', 0)}, Vehicles={streaks.get('vehicles', 0)}, Suit={streaks.get('suit', 0)}, Hands={streaks.get('hands', 0)}, Dice={streaks.get('dice', 0)}, Shapes={streaks.get('shapes', 0)}, Colour={streaks.get('colour', 0)}")
-    print(f"Houses: Full={houses.get('fullHouse', 0)}, Six={houses.get('sixHouse', 0)}, Five={houses.get('fiveHouse', 0)}, Half={houses.get('halfHouse', 0)}, High={houses.get('highHouse', 0)}, Low={houses.get('lowHouse', 0)}, SixSeven={houses.get('sixSeven', 0)}")
+    print(f"Best stage streaks: {format_stage_streaks(streaks)}")
+    print(f"Houses: {format_house_counts(houses)}")
+    print()
+    print("RULES")
+    for line in format_rules_compatibility_lines(rules):
+        print(line)
     status_lines = format_level_theme_right_status_lines(level_theme_right)
     if status_lines:
         print()
@@ -4972,6 +5651,7 @@ def cmd_stats(api_key, profile_id):
     sb = stats.get("scoreboard", {})
     streaks = stats.get("streaks", {}).get("byStage", {})
     houses = stats.get("houses", {})
+    rules = fetch_game_rules_safe()
 
     print_player_identity(api_key, profile_id)
     print("Profile stats:")
@@ -4980,8 +5660,12 @@ def cmd_stats(api_key, profile_id):
     print(f"Win rate: {sb.get('winRate', 0)}%")
     print(f"Games played: {sb.get('gamesPlayed', 0)}")
     print(f"Total wins: {sb.get('totalWins', 0)}")
-    print(f"Best stage streaks: BW={streaks.get('blackWhite', 0)}, Vehicles={streaks.get('vehicles', 0)}, Suit={streaks.get('suit', 0)}, Hands={streaks.get('hands', 0)}, Dice={streaks.get('dice', 0)}, Shapes={streaks.get('shapes', 0)}, Colour={streaks.get('colour', 0)}")
-    print(f"Houses: Full={houses.get('fullHouse', 0)}, Six={houses.get('sixHouse', 0)}, Five={houses.get('fiveHouse', 0)}, Half={houses.get('halfHouse', 0)}, High={houses.get('highHouse', 0)}, Low={houses.get('lowHouse', 0)}, SixSeven={houses.get('sixSeven', 0)}")
+    print(f"Best stage streaks: {format_stage_streaks(streaks)}")
+    print(f"Houses: {format_house_counts(houses)}")
+    print()
+    print("RULES")
+    for line in format_rules_compatibility_lines(rules):
+        print(line)
     print()
     print_game_awareness()
 
@@ -4999,7 +5683,7 @@ def main():
 
     if cmd in ["help", "setup", "support", "reports"]:
         requires_identity = False
-    elif cmd == "strategy" and args and args[0] == "trial":
+    elif cmd == "strategy" and args and args[0] in ["trial", "trail"]:
         requires_identity = False
     elif cmd == "btg":
         if len(args) == 0:
@@ -5008,7 +5692,7 @@ def main():
         subcmd = args[0]
         if subcmd in ["help", "setup", "support", "reports"]:
             requires_identity = False
-        elif subcmd == "strategy" and len(args) >= 2 and args[1] == "trial":
+        elif subcmd == "strategy" and len(args) >= 2 and args[1] in ["trial", "trail"]:
             requires_identity = False
 
     if requires_identity:
@@ -5032,14 +5716,16 @@ def main():
     should_manage_trial = cmd not in ["help", "setup", "support"]
     if not api_key or not profile_id:
         should_manage_trial = False
-    if cmd == "strategy" and args and args[0] == "trial":
+    if cmd == "strategy" and args and args[0] in ["trial", "trail"]:
         should_manage_trial = False
     if cmd == "btg" and args:
         should_manage_trial = args[0] not in ["help", "setup", "support"]
-        if args[0] == "strategy" and len(args) >= 2 and args[1] == "trial":
+        if args[0] == "strategy" and len(args) >= 2 and args[1] in ["trial", "trail"]:
             should_manage_trial = False
+    trial_state = None
+    trial_event = None
     if should_manage_trial:
-        maybe_advance_strategy_trial()
+        trial_state, trial_event = maybe_advance_strategy_trial()
 
     if cmd == "btg":
         if len(args) == 0:
@@ -5068,16 +5754,25 @@ def main():
         elif subcmd == "play":
             cmd_play(api_key, profile_id)
         elif subcmd == "autopilot":
-            cmd_autopilot(api_key, profile_id, subargs)
+            cmd_autopilot(api_key, profile_id, subargs, trial_event=trial_event, trial_state=trial_state)
         elif subcmd == "review":
             if not subargs:
-                print("Usage: btg review strategy", file=sys.stderr)
+                print("Usage: btg review <strategy [detail]|daily>", file=sys.stderr)
                 sys.exit(1)
             review_type = subargs[0]
             if review_type == "strategy":
-                cmd_review_strategy(api_key, profile_id)
+                detail = len(subargs) >= 2 and subargs[1] == "detail"
+                if len(subargs) > 2 or (len(subargs) == 2 and not detail):
+                    print("Usage: btg review strategy [detail]", file=sys.stderr)
+                    sys.exit(1)
+                cmd_review_strategy(api_key, profile_id, detail=detail)
+            elif review_type == "daily":
+                if len(subargs) > 1:
+                    print("Usage: btg review daily", file=sys.stderr)
+                    sys.exit(1)
+                cmd_review_daily(api_key, profile_id)
             else:
-                print("Usage: btg review strategy", file=sys.stderr)
+                print("Usage: btg review <strategy [detail]|daily>", file=sys.stderr)
                 sys.exit(1)
         elif subcmd == "reports":
             cmd_reports(subargs)
@@ -5117,16 +5812,25 @@ def main():
     elif cmd == "play":
         cmd_play(api_key, profile_id)
     elif cmd == "autopilot":
-        cmd_autopilot(api_key, profile_id, args)
+        cmd_autopilot(api_key, profile_id, args, trial_event=trial_event, trial_state=trial_state)
     elif cmd == "review":
         if len(args) == 0:
-            print("Usage: btg review strategy", file=sys.stderr)
+            print("Usage: btg review <strategy [detail]|daily>", file=sys.stderr)
             sys.exit(1)
         review_type = args[0]
         if review_type == "strategy":
-            cmd_review_strategy(api_key, profile_id)
+            detail = len(args) >= 2 and args[1] == "detail"
+            if len(args) > 2 or (len(args) == 2 and not detail):
+                print("Usage: btg review strategy [detail]", file=sys.stderr)
+                sys.exit(1)
+            cmd_review_strategy(api_key, profile_id, detail=detail)
+        elif review_type == "daily":
+            if len(args) > 1:
+                print("Usage: btg review daily", file=sys.stderr)
+                sys.exit(1)
+            cmd_review_daily(api_key, profile_id)
         else:
-            print("Usage: btg review strategy", file=sys.stderr)
+            print("Usage: btg review <strategy [detail]|daily>", file=sys.stderr)
             sys.exit(1)
     elif cmd == "reports":
         cmd_reports(args)

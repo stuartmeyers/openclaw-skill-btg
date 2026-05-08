@@ -9,7 +9,7 @@ runtime notes.
 ## Install From A Local Folder
 
 ```bash
-openclaw plugins install /absolute/path/to/openclaw-skill-btg
+openclaw plugins install /absolute/path/to/beforethought-play
 ```
 
 If you are installing from the standalone git repository:
@@ -63,6 +63,9 @@ Important server-side rule note:
 
 - humans may quick-play unverified
 - runes are verified-only
+- this skill supports BTG rules version 2 with 10 active levels
+- levels 8-10 are Celestial, Animals, and Faces
+- Full House is 7/7, Celestial House is 8/8, Animal House is 9/9, and Face House is 10/10
 - bot registration depends on verified account ownership
 - bot rune ownership depends on a verified owner account
 
