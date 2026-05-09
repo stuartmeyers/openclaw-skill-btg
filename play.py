@@ -16,6 +16,7 @@ STRATEGY_FILE = os.path.join(CONFIG_DIR, "strategy.json")
 STRATEGY_CONTROL_FILE = os.path.join(CONFIG_DIR, "strategycontrol.json")
 AUTOPILOT_FILE = os.path.join(CONFIG_DIR, "autopilot.json")
 AUTOPILOT_NOTIFY_QUEUE_FILE = os.path.join(CONFIG_DIR, "autopilot-notify-queue.json")
+AUTOPILOT_NOTIFY_STATE_FILE = os.path.join(CONFIG_DIR, "autopilot-notify-state.json")
 AUTOPILOT_LIMIT_NOTICE_FILE = os.path.join(CONFIG_DIR, "autopilot-limit-notice.json")
 REPORTS_FILE = os.path.join(CONFIG_DIR, "reports.json")
 STRATEGY_STATS_FILE = os.path.join(STATE_DIR, ".strategy-stats.json")
@@ -336,6 +337,47 @@ def pop_autopilot_notification_queue(limit):
     messages = queue[:limit]
     save_autopilot_notification_queue(queue[limit:])
     return messages
+
+
+def load_autopilot_notification_state():
+    migrate_legacy_state()
+    if not os.path.exists(AUTOPILOT_NOTIFY_STATE_FILE):
+        return {}
+
+    try:
+        with open(AUTOPILOT_NOTIFY_STATE_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return {}
+
+    return data if isinstance(data, dict) else {}
+
+
+def save_autopilot_notification_state(state):
+    ensure_state_dirs()
+    if not isinstance(state, dict):
+        state = {}
+    with open(AUTOPILOT_NOTIFY_STATE_FILE, "w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=True, indent=2)
+    os.chmod(AUTOPILOT_NOTIFY_STATE_FILE, 0o600)
+
+
+def should_send_autopilot_round_report(every_n):
+    every_n = safe_int(every_n, 0)
+    if every_n <= 0:
+        return False
+    if every_n == 1:
+        save_autopilot_notification_state({"roundsSinceLastNotice": 0})
+        return True
+
+    state = load_autopilot_notification_state()
+    rounds_since_notice = safe_int(state.get("roundsSinceLastNotice"), 0) + 1
+    if rounds_since_notice >= every_n:
+        save_autopilot_notification_state({"roundsSinceLastNotice": 0})
+        return True
+
+    save_autopilot_notification_state({"roundsSinceLastNotice": rounds_since_notice})
+    return False
 
 
 def load_autopilot_limit_notice_state():
@@ -2133,16 +2175,12 @@ def build_autopilot_notification_lines(batch_summary, autoplay_batch_count, auto
             return []
         return [notification_text]
 
-    append_autopilot_notification_queue(notification_text)
-
-    # Notify based on the queued report count rather than the lifetime autoplay
-    # batch number. This makes "every N rounds" behave correctly when enabled
-    # mid-day or after prior autoplay history already exists.
-    queued_notifications = load_autopilot_notification_queue()
-    if len(queued_notifications) < every_n:
+    # "Every N" means send only the Nth autoplay round report, not a digest of
+    # the previous N reports.
+    if not should_send_autopilot_round_report(every_n):
         return []
 
-    return pop_autopilot_notification_queue(every_n)
+    return [notification_text]
 
 
 def build_autopilot_notification_line(batch_summary, autoplay_batch_count, autopilot_config):
