@@ -16,6 +16,7 @@ STRATEGY_FILE = os.path.join(CONFIG_DIR, "strategy.json")
 STRATEGY_CONTROL_FILE = os.path.join(CONFIG_DIR, "strategycontrol.json")
 AUTOPILOT_FILE = os.path.join(CONFIG_DIR, "autopilot.json")
 AUTOPILOT_NOTIFY_QUEUE_FILE = os.path.join(CONFIG_DIR, "autopilot-notify-queue.json")
+AUTOPILOT_LIMIT_NOTICE_FILE = os.path.join(CONFIG_DIR, "autopilot-limit-notice.json")
 REPORTS_FILE = os.path.join(CONFIG_DIR, "reports.json")
 STRATEGY_STATS_FILE = os.path.join(STATE_DIR, ".strategy-stats.json")
 STRATEGY_TRIAL_FILE = os.path.join(STATE_DIR, ".strategy-trial.json")
@@ -335,6 +336,58 @@ def pop_autopilot_notification_queue(limit):
     messages = queue[:limit]
     save_autopilot_notification_queue(queue[limit:])
     return messages
+
+
+def load_autopilot_limit_notice_state():
+    migrate_legacy_state()
+    if not os.path.exists(AUTOPILOT_LIMIT_NOTICE_FILE):
+        return {}
+
+    try:
+        with open(AUTOPILOT_LIMIT_NOTICE_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return {}
+
+    return data if isinstance(data, dict) else {}
+
+
+def save_autopilot_limit_notice_state(state):
+    ensure_state_dirs()
+    if not isinstance(state, dict):
+        state = {}
+    with open(AUTOPILOT_LIMIT_NOTICE_FILE, "w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=True, indent=2)
+    os.chmod(AUTOPILOT_LIMIT_NOTICE_FILE, 0o600)
+
+
+def current_server_limit_notice_key():
+    server_limit_state = load_server_limit_state() or {}
+    retry_at = server_limit_state.get("retryAt")
+    if isinstance(retry_at, datetime):
+        return retry_at.isoformat()
+
+    retry_after_seconds = server_limit_state.get("retryAfterSeconds")
+    message = server_limit_state.get("message") or "server-rate-limit"
+    if retry_after_seconds is not None:
+        return f"{message}:{retry_after_seconds}"
+    return str(message)
+
+
+def should_send_server_limit_autopilot_notice():
+    notice_key = current_server_limit_notice_key()
+    if not notice_key:
+        return False
+
+    notice_state = load_autopilot_limit_notice_state()
+    if notice_state.get("lastNoticeKey") == notice_key:
+        return False
+
+    notice_state["lastNoticeKey"] = notice_key
+    notice_state["lastNotifiedAt"] = datetime.now(load_bot_tz()).isoformat()
+    save_autopilot_limit_notice_state(notice_state)
+    return True
+
 
 def save_stats_cache(stats):
     if not isinstance(stats, dict):
@@ -2069,13 +2122,16 @@ def build_autopilot_notification_lines(batch_summary, autoplay_batch_count, auto
     if not notification_text:
         return []
 
-    # Server-limit notices are operational alerts, so keep them immediate and unqueued.
-    if not batch_summary.get("played"):
-        return [notification_text]
-
     every_n = autopilot_config.get("notifyEveryNBatches", 0)
     if every_n <= 0:
         return []
+
+    # Server-limit notices are operational alerts, but they should not spam on
+    # every scheduler tick while the same retry window is still active.
+    if not batch_summary.get("played"):
+        if not should_send_server_limit_autopilot_notice():
+            return []
+        return [notification_text]
 
     append_autopilot_notification_queue(notification_text)
 
