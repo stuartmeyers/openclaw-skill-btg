@@ -59,6 +59,14 @@ STRATEGY_TRIAL_STRATEGIES = [
     "pick-due",
     "cold-avoid",
 ]
+STRATEGY_REVIEW_MODES = ["random", "hot-pick-player", "hot-pick-computer", "pick-due", "cold-avoid"]
+STRATEGY_REVIEW_CODES = {
+    "random": "RAN",
+    "hot-pick-player": "HPP",
+    "hot-pick-computer": "HPC",
+    "pick-due": "PD",
+    "cold-avoid": "CA",
+}
 SUPPORTED_RULES_VERSION = 2
 SUPPORTED_MAX_LEVEL = 10
 STAGE_DEFINITIONS = [
@@ -3132,6 +3140,37 @@ def strategy_metric_is_proven(metric):
     return isinstance(metric, dict) and metric.get("games", 0) >= 30 and metric.get("rounds", 0) >= 3
 
 
+def strategy_code(mode):
+    return STRATEGY_REVIEW_CODES.get(mode, mode)
+
+
+def format_compact_stat(value):
+    value = safe_int(value, 0)
+    if abs(value) >= 100000:
+        return f"{int(round(value / 1000.0))}k"
+    if abs(value) >= 10000:
+        return f"{int(round(value / 1000.0))}k"
+    return str(value)
+
+
+def strategy_deep_run_key(metric):
+    reach = metric.get("stageReachCounts", {}) if isinstance(metric, dict) else {}
+    return tuple(safe_int(reach.get(str(level), 0), 0) for level in range(supported_stage_count(), 4, -1))
+
+
+def strategy_overall_strength_key(metric):
+    median = metric.get("medianScore") if isinstance(metric, dict) else None
+    median_value = median if isinstance(median, int) else -1
+    return (
+        strategy_deep_run_key(metric),
+        metric.get("topFiveAverage", 0),
+        metric.get("highestScore", 0),
+        metric.get("averageScore", 0),
+        median_value,
+        metric.get("games", 0),
+    )
+
+
 def select_best_proven_strategy(strategy_metrics):
     best_mode = None
     best_metric = None
@@ -3142,18 +3181,8 @@ def select_best_proven_strategy(strategy_metrics):
             best_mode = mode
             best_metric = metric
             continue
-        challenger = (
-            metric.get("averageScore", 0),
-            metric.get("topFiveAverage", 0),
-            metric.get("highestScore", 0),
-            metric.get("games", 0),
-        )
-        incumbent = (
-            best_metric.get("averageScore", 0),
-            best_metric.get("topFiveAverage", 0),
-            best_metric.get("highestScore", 0),
-            best_metric.get("games", 0),
-        )
+        challenger = strategy_overall_strength_key(metric)
+        incumbent = strategy_overall_strength_key(best_metric)
         if challenger > incumbent:
             best_mode = mode
             best_metric = metric
@@ -3277,6 +3306,121 @@ def format_recent_depth_inline(metric):
     return ", ".join(parts)
 
 
+def strategy_stat_grid_lines(strategy_metrics):
+    modes = [mode for mode in STRATEGY_REVIEW_MODES if mode in strategy_metrics]
+    if not modes:
+        return ["No local strategy stats recorded yet."]
+
+    headers = ["Stat"] + [strategy_code(mode) for mode in modes]
+    rows = [
+        ("G", [strategy_metrics[mode].get("games", 0) for mode in modes]),
+        ("R", [strategy_metrics[mode].get("rounds", 0) for mode in modes]),
+        ("Avg", [strategy_metrics[mode].get("averageScore", 0) for mode in modes]),
+        ("Med", [strategy_metric_value(strategy_metrics[mode], "medianScore") for mode in modes]),
+        ("Peak", [format_compact_stat(strategy_metrics[mode].get("highestScore", 0)) for mode in modes]),
+        ("Top5", [format_compact_stat(strategy_metrics[mode].get("topFiveAverage", 0)) for mode in modes]),
+    ]
+    for level in range(5, min(7, supported_stage_count()) + 1):
+        rows.append(
+            (
+                f"{level}+",
+                [
+                    safe_int(strategy_metrics[mode].get("stageReachCounts", {}).get(str(level), 0), 0)
+                    for mode in modes
+                ],
+            )
+        )
+    if supported_stage_count() > 7:
+        rows.append(
+            (
+                "8+",
+                [
+                    safe_int(strategy_metrics[mode].get("stageReachCounts", {}).get("8", 0), 0)
+                    for mode in modes
+                ],
+            )
+        )
+
+    normalized_rows = []
+    for label, values in rows:
+        normalized_rows.append([label] + [str(value) for value in values])
+
+    column_widths = []
+    for col_index in range(len(headers)):
+        column_values = [headers[col_index]] + [row[col_index] for row in normalized_rows]
+        column_widths.append(max(len(value) for value in column_values))
+
+    def render_row(values):
+        rendered = []
+        for index, value in enumerate(values):
+            if index == 0:
+                rendered.append(value.ljust(column_widths[index]))
+            else:
+                rendered.append(value.rjust(column_widths[index]))
+        return " ".join(rendered)
+
+    return [render_row(headers)] + [render_row(row) for row in normalized_rows]
+
+
+def best_strategy_for_metric(strategy_metrics, metric_key):
+    best_mode = None
+    best_metric = None
+    best_value = None
+    for mode, metric in strategy_metrics.items():
+        if not strategy_metric_is_proven(metric):
+            continue
+        value = metric.get(metric_key)
+        if value is None:
+            continue
+        if best_value is None or value > best_value:
+            best_mode = mode
+            best_metric = metric
+            best_value = value
+    return best_mode, best_metric, best_value
+
+
+def best_deep_run_strategy(strategy_metrics):
+    best_mode = None
+    best_metric = None
+    best_key = None
+    for mode, metric in strategy_metrics.items():
+        if not strategy_metric_is_proven(metric):
+            continue
+        key = strategy_deep_run_key(metric)
+        if best_key is None or key > best_key:
+            best_mode = mode
+            best_metric = metric
+            best_key = key
+    return best_mode, best_metric
+
+
+def strategy_best_by_category_lines(strategy_metrics):
+    lines = []
+    category_specs = [
+        ("Average", "averageScore", None),
+        ("Median", "medianScore", None),
+        ("Peak", "highestScore", format_compact_stat),
+        ("Top 5 avg", "topFiveAverage", format_compact_stat),
+    ]
+    for label, key, formatter in category_specs:
+        mode, metric, value = best_strategy_for_metric(strategy_metrics, key)
+        if not mode:
+            continue
+        rendered_value = formatter(value) if formatter else value
+        lines.append(f"{label}: {strategy_code(mode)} {rendered_value}")
+
+    deep_mode, deep_metric = best_deep_run_strategy(strategy_metrics)
+    if deep_mode and deep_metric:
+        reach = deep_metric.get("stageReachCounts", {})
+        lines.append(
+            f"Deep runs: {strategy_code(deep_mode)} "
+            f"{safe_int(reach.get('5', 0), 0)}x5+, "
+            f"{safe_int(reach.get('6', 0), 0)}x6+, "
+            f"{safe_int(reach.get('7', 0), 0)}x7+"
+        )
+    return lines
+
+
 def comparison_quality_label(qualified_count):
     if qualified_count <= 1:
         return "weak"
@@ -3301,7 +3445,7 @@ def choose_strategy_recommendation(current_strategy, current_metric, best_proven
         return "keep current strategy for now", "not enough qualified strategy comparisons yet"
 
     if current_strategy == best_proven_mode:
-        return "stay with current strategy", f"{current_strategy} has the strongest local tracked record so far"
+        return "stay with current strategy", f"{current_strategy} has the strongest overall tracked profile so far"
 
     current_games = current_metric.get("games", 0)
     if data_quality == "weak" or current_games < 30:
@@ -3314,7 +3458,7 @@ def choose_strategy_recommendation(current_strategy, current_metric, best_proven
     if current_average >= best_average and current_top_five >= best_top_five:
         return "stay with current strategy", "current strategy matches or beats the best tracked strategy so far on average and top 5 average"
 
-    return "switch to the best tracked strategy so far", f"{best_proven_mode} has the stronger local tracked record"
+    return "switch to the best tracked strategy so far", f"{best_proven_mode} has the stronger overall tracked profile"
 
 
 def exploration_candidate_reason(candidate_mode, candidate_metric, current_metric):
@@ -3603,7 +3747,7 @@ def collect_strategy_review_context(api_key, profile_id):
     current_run_mode = current_run.get("mode")
     current_run_summary = summarize_strategy_summary(current_run if current_run_mode == current_strategy else {})
     historical_summaries = strategy_stats.get("strategies", {})
-    strategy_modes = ["random", "hot-pick-player", "hot-pick-computer", "pick-due", "cold-avoid"]
+    strategy_modes = STRATEGY_REVIEW_MODES
     current_historical_summary = summarize_strategy_summary(historical_summaries.get(current_strategy, {}))
 
     strategy_metrics = {}
@@ -3867,24 +4011,21 @@ def build_strategy_review_short_lines(context):
     current_strategy = context["current_strategy"]
     current_run_summary = context["current_run_summary"]
     current_historical_summary = context["current_historical_summary"]
+    strategy_metrics = context["strategy_metrics"]
     best_tracked_mode = context["best_proven_mode"]
     best_tracked_metric = context["best_proven_metric"]
-    comparison_mode = context["comparison_mode"]
-    comparison_metric = context["comparison_metric"]
     experiment_mode = context["experiment_mode"]
     experiment_reasons = context["experiment_reasons"]
     proven_count = context["proven_count"]
-    recommendation = context["recommendation"]
 
     best_label = best_tracked_mode or "none yet"
-    comparison_label = comparison_mode or "none yet"
     if current_strategy == best_tracked_mode:
         recommendation_text = f"Keep {current_strategy}."
-        why_text = f"{current_strategy} remains the strongest tracked strategy."
+        why_text = f"{strategy_code(current_strategy)} has the strongest overall tracked profile."
         action_text = f"keep /btg strategy {current_strategy}"
     elif best_tracked_mode:
         recommendation_text = f"Switch to {best_tracked_mode}."
-        why_text = f"{best_tracked_mode} has the strongest local tracked record."
+        why_text = f"{strategy_code(best_tracked_mode)} has the strongest overall tracked profile."
         action_text = f"/btg strategy {best_tracked_mode}"
     else:
         recommendation_text = "Keep current strategy for now."
@@ -3902,17 +4043,18 @@ def build_strategy_review_short_lines(context):
         "Why:",
         why_text,
         "",
-        "Comparison:",
+        "Strategy key:",
+        "RAN=random, HPP=hot-pick-player",
+        "HPC=hot-pick-computer, PD=pick-due, CA=cold-avoid",
+        "",
+        "Strategy stats:",
     ]
 
-    if comparison_metric:
-        lines.extend([
-            f"- Average: {current_strategy} {current_historical_summary['averageScore']} vs {comparison_label} {comparison_metric.get('averageScore', 0)}",
-            f"- Best score: {current_strategy} {current_historical_summary['highestScore']} vs {comparison_label} {comparison_metric.get('highestScore', 0)}",
-            f"- Top 5 average: {current_strategy} {current_historical_summary['topFiveAverage']} vs {comparison_label} {comparison_metric.get('topFiveAverage', 0)}",
-        ])
-    else:
-        lines.append("- Not enough qualified comparison data yet")
+    lines.extend(strategy_stat_grid_lines(strategy_metrics))
+    category_lines = strategy_best_by_category_lines(strategy_metrics)
+    if category_lines:
+        lines.extend(["", "Best by category:"])
+        lines.extend(category_lines)
 
     lines.extend([
         "",
