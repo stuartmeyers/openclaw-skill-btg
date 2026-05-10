@@ -2175,12 +2175,14 @@ def build_autopilot_notification_lines(batch_summary, autoplay_batch_count, auto
             return []
         return [notification_text]
 
-    # "Every N" means send only the Nth autoplay round report, not a digest of
-    # the previous N reports.
-    if not should_send_autopilot_round_report(every_n):
+    append_autopilot_notification_queue(notification_text)
+
+    queued_notifications = load_autopilot_notification_queue()
+    if len(queued_notifications) < every_n:
         return []
 
-    return [notification_text]
+    save_autopilot_notification_state({"roundsSinceLastNotice": 0})
+    return pop_autopilot_notification_queue(every_n)
 
 
 def build_autopilot_notification_line(batch_summary, autoplay_batch_count, autopilot_config):
