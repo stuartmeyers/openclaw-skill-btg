@@ -3362,6 +3362,30 @@ def strategy_stat_grid_lines(strategy_metrics):
     return [render_row(headers)] + [render_row(row) for row in normalized_rows]
 
 
+def strategy_stat_card_lines(strategy_metrics):
+    lines = []
+    for mode in STRATEGY_REVIEW_MODES:
+        metric = strategy_metrics.get(mode)
+        if not isinstance(metric, dict):
+            continue
+        reach = metric.get("stageReachCounts", {})
+        code = strategy_code(mode)
+        lines.extend([
+            f"{code}: Gms {metric.get('games', 0)}, Rds {metric.get('rounds', 0)}, Avg {metric.get('averageScore', 0)}, Med {strategy_metric_value(metric, 'medianScore')}",
+            (
+                f"    Peak {format_compact_stat(metric.get('highestScore', 0))}, "
+                f"Top5 {format_compact_stat(metric.get('topFiveAverage', 0))}, "
+                f"Deep {safe_int(reach.get('5', 0), 0)}/"
+                f"{safe_int(reach.get('6', 0), 0)}/"
+                f"{safe_int(reach.get('7', 0), 0)}"
+            ),
+            "",
+        ])
+    if lines and lines[-1] == "":
+        lines.pop()
+    return lines or ["No local strategy stats recorded yet."]
+
+
 def best_strategy_for_metric(strategy_metrics, metric_key):
     best_mode = None
     best_metric = None
@@ -4018,14 +4042,14 @@ def build_strategy_review_short_lines(context):
     experiment_reasons = context["experiment_reasons"]
     proven_count = context["proven_count"]
 
-    best_label = best_tracked_mode or "none yet"
+    best_label_with_code = f"{best_tracked_mode} ({strategy_code(best_tracked_mode)})" if best_tracked_mode else "none yet"
     if current_strategy == best_tracked_mode:
         recommendation_text = f"Keep {current_strategy}."
-        why_text = f"{strategy_code(current_strategy)} has the strongest overall tracked profile."
+        why_text = f"{current_strategy} has the strongest overall tracked profile."
         action_text = f"keep /btg strategy {current_strategy}"
     elif best_tracked_mode:
         recommendation_text = f"Switch to {best_tracked_mode}."
-        why_text = f"{strategy_code(best_tracked_mode)} has the strongest overall tracked profile."
+        why_text = f"{best_tracked_mode} has the strongest overall tracked profile."
         action_text = f"/btg strategy {best_tracked_mode}"
     else:
         recommendation_text = "Keep current strategy for now."
@@ -4033,8 +4057,17 @@ def build_strategy_review_short_lines(context):
         action_text = f"keep /btg strategy {current_strategy}"
 
     lines = [
+        "Strategy key:",
+        "RAN=random, HPP=hot-pick-player",
+        "HPC=hot-pick-computer, PD=pick-due, CA=cold-avoid",
+        "",
+        "Legend:",
+        "Gms=games, Rds=rounds",
+        "Top5=top 5 average",
+        "Deep=5+/6+/7+ stages correct",
+        "",
         f"Current strategy: {current_strategy}",
-        f"Best tracked strategy: {best_label}",
+        f"Best tracked strategy: {best_label_with_code}",
         f"Strategies compared: {proven_count}",
         "",
         "Recommendation:",
@@ -4043,14 +4076,10 @@ def build_strategy_review_short_lines(context):
         "Why:",
         why_text,
         "",
-        "Strategy key:",
-        "RAN=random, HPP=hot-pick-player",
-        "HPC=hot-pick-computer, PD=pick-due, CA=cold-avoid",
-        "",
         "Strategy stats:",
     ]
 
-    lines.extend(strategy_stat_grid_lines(strategy_metrics))
+    lines.extend(strategy_stat_card_lines(strategy_metrics))
     category_lines = strategy_best_by_category_lines(strategy_metrics)
     if category_lines:
         lines.extend(["", "Best by category:"])
