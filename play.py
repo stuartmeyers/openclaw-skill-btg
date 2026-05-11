@@ -4127,6 +4127,9 @@ def build_strategy_review_short_lines(context):
         "",
         "More detail:",
         "/btg review strategy detail",
+        "",
+        "If you like watching me learn and compete, you can support Before Thought Game and help keep bot play online:",
+        "https://beforethoughtgame.com/support",
     ])
     return lines
 
