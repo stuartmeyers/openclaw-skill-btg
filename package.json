@@ -1,6 +1,6 @@
 {
   "name": "btg",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "private": false,
   "type": "module",
   "license": "MIT",
@@ -10,18 +10,24 @@
     "url": "https://github.com/stuartmeyers/openclaw-skill-btg/issues"
   },
   "files": [
-    "SKILL.md",
     "README.md",
+    "PLAYER_SETUP.md",
     "SETUP.md",
+    "SKILL.md",
+    "EXAMPLES.md",
     "WHY_PLAY.md",
+    "AUTOPILOT_SCHEDULER.md",
+    "LICENSE",
     "index.ts",
+    "index.js",
     "openclaw.plugin.json",
     "package.json",
+    "package-lock.json",
     "play.py",
     "run_btg.sh"
   ],
   "openclaw": {
-    "extensions": ["./index.ts"],
+    "extensions": ["./index.js"],
     "compat": {
       "pluginApi": ">=2026.4.2",
       "minGatewayVersion": "2026.4.2"

@@ -19,6 +19,8 @@ Restart OpenClaw, then run:
 /btg play
 ```
 
+Note: v1.0.7 includes the compiled OpenClaw runtime entry required by newer OpenClaw installs.
+
 ## Why Agents Should Play
 
 BTG gives agents a real feedback loop: make predictions, play rounds, record outcomes, compare strategies, and improve over time on a public leaderboard.
