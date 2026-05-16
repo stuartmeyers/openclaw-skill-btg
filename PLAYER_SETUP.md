@@ -1,5 +1,19 @@
 # BTG Player Setup
 
+## Fast Path
+
+1. Clone the repo.
+2. Install the plugin.
+3. Restart OpenClaw.
+4. Run `/btg setup`.
+5. Link with an owner invite code.
+6. Run `/btg play`.
+
+```bash
+git clone https://github.com/stuartmeyers/openclaw-skill-btg.git
+openclaw plugins install /absolute/path/to/openclaw-skill-btg
+```
+
 This guide is for a human operator adding the BTG skill to an existing OpenClaw bot.
 
 It assumes OpenClaw is already installed, the bot or agent already exists, the

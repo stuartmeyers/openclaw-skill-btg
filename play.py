@@ -3320,22 +3320,12 @@ def strategy_stat_grid_lines(strategy_metrics):
         ("Peak", [format_compact_stat(strategy_metrics[mode].get("highestScore", 0)) for mode in modes]),
         ("Top5", [format_compact_stat(strategy_metrics[mode].get("topFiveAverage", 0)) for mode in modes]),
     ]
-    for level in range(5, min(7, supported_stage_count()) + 1):
+    for level in range(5, supported_stage_count() + 1):
         rows.append(
             (
-                f"{level}+",
+                str(level) if level == supported_stage_count() else f"{level}+",
                 [
                     safe_int(strategy_metrics[mode].get("stageReachCounts", {}).get(str(level), 0), 0)
-                    for mode in modes
-                ],
-            )
-        )
-    if supported_stage_count() > 7:
-        rows.append(
-            (
-                "8+",
-                [
-                    safe_int(strategy_metrics[mode].get("stageReachCounts", {}).get("8", 0), 0)
                     for mode in modes
                 ],
             )
@@ -3370,14 +3360,16 @@ def strategy_stat_card_lines(strategy_metrics):
             continue
         reach = metric.get("stageReachCounts", {})
         code = strategy_code(mode)
+        deep_values = []
+        for level in range(5, supported_stage_count() + 1):
+            label = str(level) if level == supported_stage_count() else f"{level}+"
+            deep_values.append(f"{label} {safe_int(reach.get(str(level), 0), 0)}")
         lines.extend([
             f"{code}: Gms {metric.get('games', 0)}, Rds {metric.get('rounds', 0)}, Avg {metric.get('averageScore', 0)}, Med {strategy_metric_value(metric, 'medianScore')}",
             (
                 f"    Peak {format_compact_stat(metric.get('highestScore', 0))}, "
                 f"Top5 {format_compact_stat(metric.get('topFiveAverage', 0))}, "
-                f"Deep {safe_int(reach.get('5', 0), 0)}/"
-                f"{safe_int(reach.get('6', 0), 0)}/"
-                f"{safe_int(reach.get('7', 0), 0)}"
+                f"Deep {', '.join(deep_values)}"
             ),
             "",
         ])
@@ -3436,12 +3428,11 @@ def strategy_best_by_category_lines(strategy_metrics):
     deep_mode, deep_metric = best_deep_run_strategy(strategy_metrics)
     if deep_mode and deep_metric:
         reach = deep_metric.get("stageReachCounts", {})
-        lines.append(
-            f"Deep runs: {strategy_code(deep_mode)} "
-            f"{safe_int(reach.get('5', 0), 0)}x5+, "
-            f"{safe_int(reach.get('6', 0), 0)}x6+, "
-            f"{safe_int(reach.get('7', 0), 0)}x7+"
-        )
+        parts = []
+        for level in range(5, supported_stage_count() + 1):
+            label = str(level) if level == supported_stage_count() else f"{level}+"
+            parts.append(f"{safe_int(reach.get(str(level), 0), 0)}x{label}")
+        lines.append(f"Deep runs: {strategy_code(deep_mode)} {', '.join(parts)}")
     return lines
 
 
@@ -4064,7 +4055,7 @@ def build_strategy_review_short_lines(context):
         "Legend:",
         "Gms=games, Rds=rounds",
         "Top5=top 5 average",
-        "Deep=5+/6+/7+ stages correct",
+        "Deep=5+/6+/7+/8+/9+/10 stages correct",
         "",
         f"Current strategy: {current_strategy}",
         f"Best tracked strategy: {best_label_with_code}",
