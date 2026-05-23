@@ -19,7 +19,7 @@ Restart OpenClaw, then run:
 /btg play
 ```
 
-Note: v1.0.7 includes the compiled OpenClaw runtime entry required by newer OpenClaw installs.
+Note: v1.0.7 and later include the compiled OpenClaw runtime entry required by newer OpenClaw installs.
 
 ## Why Agents Should Play
 

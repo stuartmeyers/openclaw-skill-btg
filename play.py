@@ -70,16 +70,16 @@ STRATEGY_REVIEW_CODES = {
 SUPPORTED_RULES_VERSION = 2
 SUPPORTED_MAX_LEVEL = 10
 STAGE_DEFINITIONS = [
-    {"level": 1, "key": "blackWhite", "label": "Black/White", "short": "BW", "aliases": ["blackWhite", "black_white", "bw", "level1"]},
-    {"level": 2, "key": "vehicles", "label": "Vehicles", "short": "Vehicles", "aliases": ["vehicles", "vehicle", "level2"]},
-    {"level": 3, "key": "suit", "label": "Suit", "short": "Suit", "aliases": ["suit", "suits", "level3"]},
-    {"level": 4, "key": "hands", "label": "Hands", "short": "Hands", "aliases": ["hands", "hand", "level4"]},
-    {"level": 5, "key": "dice", "label": "Dice", "short": "Dice", "aliases": ["dice", "die", "level5"]},
-    {"level": 6, "key": "shapes", "label": "Shapes", "short": "Shapes", "aliases": ["shapes", "shape", "level6"]},
-    {"level": 7, "key": "colour", "label": "Colour", "short": "Colour", "aliases": ["colour", "color", "colours", "colors", "level7"]},
-    {"level": 8, "key": "celestial", "label": "Celestial", "short": "Celestial", "aliases": ["celestial", "level8"]},
-    {"level": 9, "key": "animals", "label": "Animals", "short": "Animals", "aliases": ["animals", "animal", "level9"]},
-    {"level": 10, "key": "faces", "label": "Faces", "short": "Faces", "aliases": ["faces", "face", "level10"]},
+    {"level": 1, "key": "blackWhite", "label": "Black/White", "short": "BW", "aliases": ["blackWhite", "black_white", "bw", "level1", "stage1"]},
+    {"level": 2, "key": "vehicles", "label": "Vehicles", "short": "Vehicles", "aliases": ["vehicles", "vehicle", "level2", "stage2"]},
+    {"level": 3, "key": "suit", "label": "Suit", "short": "Suit", "aliases": ["suit", "suits", "level3", "stage3"]},
+    {"level": 4, "key": "hands", "label": "Hands", "short": "Hands", "aliases": ["hands", "hand", "level4", "stage4"]},
+    {"level": 5, "key": "dice", "label": "Dice", "short": "Dice", "aliases": ["dice", "die", "level5", "stage5"]},
+    {"level": 6, "key": "shapes", "label": "Shapes", "short": "Shapes", "aliases": ["shapes", "shape", "level6", "stage6"]},
+    {"level": 7, "key": "colour", "label": "Colour", "short": "Colour", "aliases": ["colour", "color", "colours", "colors", "level7", "stage7"]},
+    {"level": 8, "key": "celestial", "label": "Celestial", "short": "Celestial", "aliases": ["celestial", "level8", "stage8"]},
+    {"level": 9, "key": "animals", "label": "Animals", "short": "Animals", "aliases": ["animals", "animal", "level9", "stage9"]},
+    {"level": 10, "key": "faces", "label": "Faces", "short": "Faces", "aliases": ["faces", "face", "level10", "stage10"]},
 ]
 STAGE_KEYS = [stage["key"] for stage in STAGE_DEFINITIONS]
 STAGE_ALIASES = {
@@ -2013,10 +2013,9 @@ def format_int_with_commas(value):
 
 
 def stage_name_from_index(index):
-    names = ["Black/White", "Vehicles", "Suit", "Hands", "Dice", "Shapes", "Colour"]
-    if isinstance(index, int) and 0 <= index < len(names):
-        return names[index]
-    return f"Stage {safe_int(index, 0) + 1}"
+    if isinstance(index, int) and 0 <= index < len(STAGE_DEFINITIONS):
+        return STAGE_DEFINITIONS[index]["label"]
+    return f"Level {safe_int(index, 0) + 1}"
 
 
 def find_stage_bonus_score(bonuses, stage_key, stage_label):
@@ -2063,7 +2062,7 @@ def format_success_breakdown_for_result(result):
         streak = safe_int(streak_value, 0)
         if streak < 3:
             continue
-        stage_key = stage_keys[index] if index < len(stage_keys) else f"stage{index + 1}"
+        stage_key = stage_keys[index] if index < len(stage_keys) else f"level{index + 1}"
         stage_label = stage_name_from_index(index)
         bonus_score = find_stage_bonus_score(bonuses, stage_key, stage_label)
         highlights.append((streak, bonus_score, stage_label))
@@ -3642,7 +3641,7 @@ def select_suggested_experiment(current_strategy, strategy_metrics, best_tracked
 
 def format_experiment_reason(mode, reasons):
     if not mode:
-        return "No clear experiment is due from the local strategy history."
+        return "No clear learning experiment is due from the local strategy history."
     if not reasons:
         return f"{mode} gives more learning value than continuing the current strategy."
     reason_text = "; ".join(reasons)
@@ -3650,7 +3649,7 @@ def format_experiment_reason(mode, reasons):
         return f"{mode} is {reason_text}."
     if reason_text.startswith("gives "):
         return f"{mode} {reason_text}."
-    return f"{mode} is due for testing because {reason_text}."
+    return f"{mode} has the best exploration value right now because {reason_text}."
 
 
 def describe_exploration_candidate(candidate_metric, best_proven_metric):
@@ -3737,17 +3736,17 @@ def build_optional_exploration_lines(current_strategy, strategy_metrics, best_pr
 
     if candidate_metric.get("games", 0) <= 0:
         return [
-            f"- Suggested experiment: {candidate_mode}",
+            f"- Learning experiment: {candidate_mode}",
             "- Reason: this would gather fresh local evidence for an untested strategy.",
         ]
 
     if best_proven_mode:
         return [
-            f"- Suggested experiment: {candidate_mode}",
+            f"- Learning experiment: {candidate_mode}",
             f"- Reason: {candidate_mode} has shown stronger high-score potential than the current strategy, but {best_proven_mode} remains the stronger recommendation based on local tracked results.",
         ]
     return [
-        f"- Suggested experiment: {candidate_mode}",
+        f"- Learning experiment: {candidate_mode}",
         f"- Reason: {candidate_reason}.",
     ]
 
@@ -3993,7 +3992,7 @@ def build_strategy_review_detail_lines(context):
     if comparison_quality == "weak":
         lines.append("- Recommendation: keep current strategy for now")
         lines.append("- Reason: not enough qualified strategy comparisons yet")
-        lines.append("- Suggested experiment: test another strategy for 3-10 rounds")
+        lines.append("- Learning experiment: test another strategy for 3-10 rounds")
     else:
         lines.append(f"- Recommendation: {recommendation}")
         if best_proven_mode:
@@ -4007,8 +4006,8 @@ def build_strategy_review_detail_lines(context):
         lines.append("- Action: keep this only if you deliberately want more experiment data")
 
     if experiment_mode:
-        lines.append(f"- Suggested experiment: {experiment_mode}")
-        lines.append(f"- Suggested experiment reason: {format_experiment_reason(experiment_mode, experiment_reasons)}")
+        lines.append(f"- Learning experiment: {experiment_mode}")
+        lines.append(f"- Learning experiment reason: {format_experiment_reason(experiment_mode, experiment_reasons)}")
 
     review_breakthrough_lines = format_level_theme_right_review_lines(level_theme_right)
     if review_breakthrough_lines:
@@ -4094,10 +4093,10 @@ def build_strategy_review_short_lines(context):
 
     lines.extend([
         "",
-        "Suggested experiment:",
+        "Learning experiment:",
     ])
     if experiment_mode:
-        lines.append(f"Try {experiment_mode} next.")
+        lines.append(f"Try {experiment_mode} next if you want more learning data.")
         lines.extend([
             "",
             "Why:",
@@ -4113,7 +4112,7 @@ def build_strategy_review_short_lines(context):
         action_text,
     ])
     if experiment_mode:
-        lines.append(f"or test /btg strategy {experiment_mode}")
+        lines.append(f"or explore /btg strategy {experiment_mode}")
     lines.extend([
         "",
         "More detail:",
@@ -5680,6 +5679,9 @@ def cmd_play(api_key, profile_id, trigger_source="manual"):
         "topScore": best,
         "averageScore": average_score,
         "gameScores": game_scores,
+        "topScoreSuccessBreakdown": format_success_breakdown_for_result(best_result),
+        "newRuneDiscoveries": newly_discovered_runes,
+        "highlights": highlights,
     })
     record_strategy_round(current_strategy, results)
     record_strategy_trial_round(current_strategy, results, completed_at=completed_at)
